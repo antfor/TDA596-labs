@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 
 	"golang.org/x/sync/semaphore"
 )
@@ -19,6 +20,8 @@ const maxConections int64 = 10
 
 var sem = semaphore.NewWeighted(maxConections)
 var ctx context.Context
+
+const baseDir string = "./data"
 
 var validExt = [...]string{"html", "txt", "gif", "jpeg", "jpg", "css"}
 var validContent = [...]string{"text/html", "text/plain", "image/gif", "image/jpeg", "image/jpeg", "text/css"}
@@ -110,10 +113,14 @@ func handleRequest(conn net.Conn, req *http.Request, rw http.ResponseWriter) {
 
 func handleGet(conn net.Conn, req *http.Request, rw http.ResponseWriter) {
 
-	ext := filepath.Ext(req.URL.Path)[1:]
+	ext := filepath.Ext(req.URL.Path)
+
+	if len(ext) > 0 {
+		ext = ext[1:]
+	}
 
 	if validExtension(ext) {
-		http.ServeFile(rw, req, "."+req.URL.Path)
+		http.ServeFile(rw, req, baseDir+req.URL.Path)
 	} else {
 		http.Error(rw, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 	}
@@ -122,23 +129,40 @@ func handleGet(conn net.Conn, req *http.Request, rw http.ResponseWriter) {
 func handlePost(conn net.Conn, req *http.Request, rw http.ResponseWriter) {
 
 	body, err := io.ReadAll(req.Body)
+
 	if err != nil {
 		http.Error(rw, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 	}
 
-	content := http.DetectContentType(body)
-
+	content := toContent(http.DetectContentType(body))
 	ext := mapContentToExt[content]
 
-	if validExtension(ext) {
+	path := baseDir + req.URL.Path
+	pathExt := filepath.Ext(req.URL.Path)
 
-		fmt.Println("hej")
-		fmt.Println(req)
+	if len(ext) > 0 {
+		pathExt = pathExt[1:]
+	}
+
+	if validExtension(ext) && ext == pathExt {
+
+		err := os.WriteFile(path, body, 0666)
+		fmt.Println(err)
+		if err != nil {
+			http.Error(rw, "error writing file", http.StatusBadRequest)
+		} else {
+			rw.WriteHeader(http.StatusOK)
+		}
 
 	} else {
 		http.Error(rw, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 	}
 
+}
+
+func toContent(s string) string {
+
+	return s[strings.Index(s, ":")+1 : strings.Index(s, ";")]
 }
 
 func validExtension(ext string) bool {
