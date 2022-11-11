@@ -4,7 +4,7 @@ import (
 	"bufio"
 	"context"
 	"fmt"
-	"mime"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -15,38 +15,85 @@ import (
 	"golang.org/x/sync/semaphore"
 )
 
-var port int
-
 const maxConections int64 = 10
 
 var sem = semaphore.NewWeighted(maxConections)
 var ctx context.Context
 
 var validExt = [...]string{"html", "txt", "gif", "jpeg", "jpg", "css"}
+var validContent = [...]string{"text/html", "text/plain", "image/gif", "image/jpeg", "image/jpeg", "text/css"}
+var mapContentToExt = func() map[string]string {
+	x := make(map[string]string)
+	for i := 0; i < len(validExt); i++ {
+		x[validContent[i]] = validExt[i]
+	}
+	return x
+}()
 
 func main() {
 
 	ctx = context.Background()
 
-	fmt.Println(len(os.Args), os.Args)
-	fmt.Println(os.Args[1])
+	port, err := getPort()
 
-	err := getPort()
+	if !err {
+		panic("not a valid port")
+	}
 
-	fmt.Println("port: ", port, err)
+	listen(port)
+}
 
-	listen()
+func listen(port int) {
+
+	l, err := net.Listen("tcp", ":"+strconv.Itoa(port))
+
+	if err != nil {
+		panic("could not listen to port")
+	}
+
+	defer l.Close()
+
+	for {
+
+		conn, err := l.Accept()
+
+		if err != nil {
+			panic("error in accpeting connection")
+		}
+
+		fmt.Println("accpeted connection")
+
+		go func() {
+			sem.Acquire(ctx, 1)
+			defer conn.Close()
+			defer sem.Release(1)
+
+			fmt.Println("serve connection")
+			handleConnection(conn)
+			fmt.Println("done")
+		}()
+
+	}
 
 }
 
-func limitHandeFunc(f http.HandlerFunc) http.HandlerFunc {
+func handleConnection(conn net.Conn) {
 
-	return func(w http.ResponseWriter, req *http.Request) {
-		sem.Acquire(ctx, 1)
-		defer sem.Release(1)
+	rw := httptest.NewRecorder()
+	req, err := request(conn)
 
-		f(w, req)
+	if err != nil {
+		http.Error(rw, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+	} else {
+		handleRequest(conn, req, rw)
 	}
+
+	rw.Result().Write(conn)
+}
+
+func request(conn net.Conn) (*http.Request, error) {
+	scanner := bufio.NewReader(conn)
+	return http.ReadRequest(scanner)
 }
 
 func handleRequest(conn net.Conn, req *http.Request, rw http.ResponseWriter) {
@@ -57,32 +104,41 @@ func handleRequest(conn net.Conn, req *http.Request, rw http.ResponseWriter) {
 	case http.MethodPost: // POST
 		handlePost(conn, req, rw)
 	default:
-		//http.Error(w, http.StatusText(http.StatusNotImplemented), http.StatusNotImplemented)
+		http.Error(rw, http.StatusText(http.StatusNotImplemented), http.StatusNotImplemented)
 	}
-}
-
-func getPath(conn net.Conn, req *http.Request) {
-
 }
 
 func handleGet(conn net.Conn, req *http.Request, rw http.ResponseWriter) {
 
 	ext := filepath.Ext(req.URL.Path)[1:]
-	mimeType := mime.TypeByExtension(ext)
-	dat, err := os.ReadFile("." + req.URL.Path)
 
-	if err == nil {
-		//http.Error(w, "404 not found.", http.StatusNotFound)
-	} else if validExtension(ext) {
-
-		if validExtension(ext) {
-			//error
-		}
-
-		fmt.Printf(ext)
-		fmt.Println(mimeType)
-
+	if validExtension(ext) {
+		http.ServeFile(rw, req, "."+req.URL.Path)
+	} else {
+		http.Error(rw, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 	}
+}
+
+func handlePost(conn net.Conn, req *http.Request, rw http.ResponseWriter) {
+
+	body, err := io.ReadAll(req.Body)
+	if err != nil {
+		http.Error(rw, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+	}
+
+	content := http.DetectContentType(body)
+
+	ext := mapContentToExt[content]
+
+	if validExtension(ext) {
+
+		fmt.Println("hej")
+		fmt.Println(req)
+
+	} else {
+		http.Error(rw, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+	}
+
 }
 
 func validExtension(ext string) bool {
@@ -95,89 +151,14 @@ func validExtension(ext string) bool {
 	return false
 }
 
-func handlePost(conn net.Conn, req *http.Request) {
-	//http.DetectContentType()
-}
-
-func listen() {
-
-	//log.Fatal(http.ListenAndServe(":"+strconv.Itoa(port), nil))
-
-	l, _ := net.Listen("tcp", ":"+strconv.Itoa(port))
-
-	// error handliing
-
-	defer l.Close()
-
-	host, hostPort, _ := net.SplitHostPort(l.Addr().String())
-
-	// error handliing
-
-	fmt.Printf("Listening on host: %s, port: %s\n", host, hostPort)
-
-	for {
-
-		conn, _ := l.Accept()
-		fmt.Println("accpeted")
-		//error handling
-		sem.Acquire(ctx, 1)
-		go handleConnection(conn)
-
-	}
-
-}
-
-func handleConnection(conn net.Conn) {
-	defer conn.Close()
-	defer sem.Release(1)
-
-	req, _ := request(conn)
-	//todo error handling
-	rw := httptest.NewRecorder()
-	handleRequest(conn, req, rw)
-	response(conn, rw.Result())
-
-}
-
-func request(conn net.Conn) (req *http.Request, err error) {
-
-	scanner := bufio.NewReader(conn)
-	req, err = http.ReadRequest(scanner)
-
-	if err != nil {
-
-	}
-
-	fmt.Println(req)
-	fmt.Println(err)
-	fmt.Println(req.URL)
-	fmt.Println(req.URL.Path)
-
-	return
-}
-
-func response(conn net.Conn, r *http.Response) {
-
-	r.Write(conn)
-
-	body := "This Is Go Http Server Using TCP"
-
-	fmt.Fprint(conn, "HTTP/1.1 200 OK\r\n")
-	fmt.Fprintf(conn, "Content-Length: %d\r\n", len(body))
-	fmt.Fprint(conn, "Content-Type: text/html\r\n")
-	fmt.Fprint(conn, "\r\n")
-	fmt.Fprint(conn, body)
-}
-
-func getPort() bool {
+func getPort() (int, bool) {
 
 	sPort := os.Args[1]
 	portNum, err := strconv.Atoi(sPort)
 
 	if err != nil {
-		return false
+		return -1, false
 	}
 
-	port = portNum
-	return true
+	return portNum, true
 }
