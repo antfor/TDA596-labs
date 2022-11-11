@@ -147,7 +147,7 @@ func handlePost(conn net.Conn, req *http.Request, rw http.ResponseWriter) {
 	if validExtension(ext) && ext == pathExt {
 
 		err := os.WriteFile(path, body, 0666)
-		fmt.Println(err)
+
 		if err != nil {
 			http.Error(rw, "error writing file", http.StatusBadRequest)
 		} else {
