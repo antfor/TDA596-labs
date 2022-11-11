@@ -4,11 +4,13 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"mime"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strconv"
-	"strings"
 
 	"golang.org/x/sync/semaphore"
 )
@@ -20,6 +22,8 @@ const maxConections int64 = 10
 var sem = semaphore.NewWeighted(maxConections)
 var ctx context.Context
 
+var validExt = [...]string{"html", "txt", "gif", "jpeg", "jpg", "css"}
+
 func main() {
 
 	ctx = context.Background()
@@ -30,8 +34,6 @@ func main() {
 	err := getPort()
 
 	fmt.Println("port: ", port, err)
-
-	http.HandleFunc("/hello", limitHandeFunc(hello))
 
 	listen()
 
@@ -47,37 +49,54 @@ func limitHandeFunc(f http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
-func hello(w http.ResponseWriter, req *http.Request) {
+func handleRequest(conn net.Conn, req *http.Request, rw http.ResponseWriter) {
 
-	fmt.Fprintf(w, "hello\n")
-	//time.Sleep(5 * time.Second)
 	switch req.Method {
-	case "GET":
-		handleGet(w, req)
-	case "POST":
-		handlePost(w, req)
+	case http.MethodGet: //GET
+		handleGet(conn, req, rw)
+	case http.MethodPost: // POST
+		handlePost(conn, req, rw)
 	default:
-		http.Error(w, "501 Not Implemented", http.StatusNotImplemented)
+		//http.Error(w, http.StatusText(http.StatusNotImplemented), http.StatusNotImplemented)
 	}
 }
 
-func getPath(w http.ResponseWriter, req *http.Request) {
+func getPath(conn net.Conn, req *http.Request) {
 
 }
 
-func handleGet(w http.ResponseWriter, req *http.Request) {
+func handleGet(conn net.Conn, req *http.Request, rw http.ResponseWriter) {
 
-	//path, format, err := getPath(w, req)
+	ext := filepath.Ext(req.URL.Path)[1:]
+	mimeType := mime.TypeByExtension(ext)
+	dat, err := os.ReadFile("." + req.URL.Path)
 
-	if true {
+	if err == nil {
 		//http.Error(w, "404 not found.", http.StatusNotFound)
-	} else {
-		//http.ServeFile(w, req, path)
+	} else if validExtension(ext) {
+
+		if validExtension(ext) {
+			//error
+		}
+
+		fmt.Printf(ext)
+		fmt.Println(mimeType)
+
 	}
 }
 
-func handlePost(w http.ResponseWriter, req *http.Request) {
+func validExtension(ext string) bool {
 
+	for _, a := range validExt {
+		if a == ext {
+			return true
+		}
+	}
+	return false
+}
+
+func handlePost(conn net.Conn, req *http.Request) {
+	//http.DetectContentType()
 }
 
 func listen() {
@@ -112,28 +131,35 @@ func handleConnection(conn net.Conn) {
 	defer conn.Close()
 	defer sem.Release(1)
 
-	request(conn)
-	response(conn)
+	req, _ := request(conn)
+	//todo error handling
+	rw := httptest.NewRecorder()
+	handleRequest(conn, req, rw)
+	response(conn, rw.Result())
 
 }
 
-func request(conn net.Conn) {
-	i := 0
-	scanner := bufio.NewScanner(conn)
-	for scanner.Scan() {
-		line := scanner.Text()
-		if i == 0 {
-			m := strings.Fields(line)[0]
-			fmt.Println("Methods", m)
-		}
-		if line == "" {
-			break
-		}
-		i++
+func request(conn net.Conn) (req *http.Request, err error) {
+
+	scanner := bufio.NewReader(conn)
+	req, err = http.ReadRequest(scanner)
+
+	if err != nil {
+
 	}
 
+	fmt.Println(req)
+	fmt.Println(err)
+	fmt.Println(req.URL)
+	fmt.Println(req.URL.Path)
+
+	return
 }
-func response(conn net.Conn) {
+
+func response(conn net.Conn, r *http.Response) {
+
+	r.Write(conn)
+
 	body := "This Is Go Http Server Using TCP"
 
 	fmt.Fprint(conn, "HTTP/1.1 200 OK\r\n")
