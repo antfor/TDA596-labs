@@ -12,12 +12,14 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 
 	"golang.org/x/sync/semaphore"
 )
 
 const maxConections int64 = 10
 
+var lockRW = sync.RWMutex{}
 var sem = semaphore.NewWeighted(maxConections)
 var ctx context.Context
 
@@ -37,9 +39,9 @@ func main() {
 
 	ctx = context.Background()
 
-	port, err := getPort()
+	port, valid := getPort()
 
-	if !err {
+	if !valid {
 		panic("not a valid port")
 	}
 
@@ -120,7 +122,13 @@ func handleGet(conn net.Conn, req *http.Request, rw http.ResponseWriter) {
 	}
 
 	if validExtension(ext) {
+
+		lockRW.RLock()
+
 		http.ServeFile(rw, req, baseDir+req.URL.Path)
+
+		lockRW.RUnlock()
+
 	} else {
 		http.Error(rw, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 	}
@@ -146,7 +154,11 @@ func handlePost(conn net.Conn, req *http.Request, rw http.ResponseWriter) {
 
 	if validExtension(ext) && ext == pathExt {
 
+		lockRW.Lock()
+
 		err := os.WriteFile(path, body, 0666)
+
+		lockRW.Unlock()
 
 		if err != nil {
 			http.Error(rw, "error writing file", http.StatusBadRequest)
@@ -180,7 +192,7 @@ func getPort() (int, bool) {
 	sPort := os.Args[1]
 	portNum, err := strconv.Atoi(sPort)
 
-	if err != nil {
+	if err != nil || portNum < 0 || portNum > 65535 {
 		return -1, false
 	}
 
