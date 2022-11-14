@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -67,15 +68,20 @@ func listen(port int) {
 		}
 
 		fmt.Println("accpeted connection")
+		fmt.Println(runtime.NumGoroutine())
+
+		sem.Acquire(ctx, 1)
 
 		go func() {
-			sem.Acquire(ctx, 1)
+
 			defer conn.Close()
 			defer sem.Release(1)
 
 			fmt.Println("serve connection")
 			handleConnection(conn)
+
 			fmt.Println("done")
+
 		}()
 
 	}
