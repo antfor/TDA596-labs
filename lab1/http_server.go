@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"io/fs"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -14,15 +15,17 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"golang.org/x/sync/semaphore"
 )
 
 const maxConections int64 = 10
 
-var lockRW = sync.RWMutex{}
 var sem = semaphore.NewWeighted(maxConections)
 var ctx context.Context
+
+var mapFileTolock sync.Map
 
 const baseDir string = "./data"
 
@@ -36,8 +39,11 @@ var mapContentToExt = func() map[string]string {
 	return x
 }()
 
+var lvlndfk sync.RWMutex
+
 func main() {
 
+	lvlndfk.Lock()
 	ctx = context.Background()
 
 	port, valid := getPort()
@@ -46,7 +52,32 @@ func main() {
 		panic("not a valid port")
 	}
 
+	getFiles()
+
 	listen(port)
+}
+
+func getFiles() error {
+	return filepath.Walk(baseDir, handleFile)
+}
+
+func handleFile(path string, info fs.FileInfo, err error) error {
+
+	ext := filepath.Ext(path)
+
+	if len(ext) > 0 {
+		ext = ext[1:]
+	}
+
+	if validExtension(ext) {
+
+		newPath := "./" + strings.ReplaceAll(path, "\\", "/")
+		fmt.Println(newPath)
+		var lock sync.RWMutex = sync.RWMutex{}
+		mapFileTolock.Store(newPath, &lock)
+
+	}
+	return nil
 }
 
 func listen(port int) {
@@ -129,11 +160,23 @@ func handleGet(conn net.Conn, req *http.Request, rw http.ResponseWriter) {
 
 	if validExtension(ext) {
 
-		lockRW.RLock()
+		fmt.Println(baseDir + req.URL.Path)
+		lockRW, found := mapFileTolock.Load(baseDir + req.URL.Path)
+		fmt.Println("Get lock", &lockRW)
 
-		http.ServeFile(rw, req, baseDir+req.URL.Path)
+		if found {
+			(lockRW.(*sync.RWMutex)).RLock()
 
-		lockRW.RUnlock()
+			fmt.Println(baseDir + req.URL.Path)
+			time.Sleep(10 * time.Second)
+			fmt.Println("Sleep Over.....")
+
+			http.ServeFile(rw, req, baseDir+req.URL.Path)
+
+			(lockRW.(*sync.RWMutex)).RUnlock()
+		} else {
+			http.Error(rw, http.StatusText(http.StatusNotFound), http.StatusNotFound)
+		}
 
 	} else {
 		http.Error(rw, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
@@ -160,11 +203,14 @@ func handlePost(conn net.Conn, req *http.Request, rw http.ResponseWriter) {
 
 	if validExtension(ext) && ext == pathExt {
 
-		lockRW.Lock()
+		lockRW, _ := mapFileTolock.LoadOrStore(req.URL, sync.RWMutex{})
+		fmt.Println("Post lock", &lockRW)
+
+		(lockRW.(*sync.RWMutex)).Lock()
 
 		err := os.WriteFile(path, body, 0666)
 
-		lockRW.Unlock()
+		(lockRW.(*sync.RWMutex)).Unlock()
 
 		if err != nil {
 			http.Error(rw, "error writing file", http.StatusBadRequest)

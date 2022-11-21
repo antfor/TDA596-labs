@@ -75,16 +75,15 @@ func handleConnection(conn net.Conn) {
 
 	rw := httptest.NewRecorder()
 	req, err := request(conn)
-	var err2 bool
+	msgClient := false
 
 	if err != nil {
 		http.Error(rw, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
-		rw.Result().Write(conn)
 	} else {
-		err2 = handleRequest(conn, req, rw)
+		msgClient = handleRequest(conn, req, rw)
 	}
 
-	if !err2 {
+	if !msgClient {
 		rw.Result().Write(conn)
 	}
 
@@ -110,7 +109,7 @@ func handleGet(conn net.Conn, req *http.Request, rw http.ResponseWriter) bool {
 
 	url := req.URL.String()
 
-	if url[0] == '/' {
+	if len(url) > 0 && url[0] == '/' {
 		url = url[1:]
 	}
 
