@@ -15,7 +15,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"time"
 
 	"golang.org/x/sync/semaphore"
 )
@@ -39,11 +38,8 @@ var mapContentToExt = func() map[string]string {
 	return x
 }()
 
-var lvlndfk sync.RWMutex
-
 func main() {
 
-	lvlndfk.Lock()
 	ctx = context.Background()
 
 	port, valid := getPort()
@@ -73,8 +69,10 @@ func handleFile(path string, info fs.FileInfo, err error) error {
 
 		newPath := "./" + strings.ReplaceAll(path, "\\", "/")
 		fmt.Println(newPath)
-		var lock sync.RWMutex = sync.RWMutex{}
-		mapFileTolock.Store(newPath, &lock)
+
+		var lock *sync.RWMutex = &sync.RWMutex{}
+
+		mapFileTolock.Store(newPath, lock)
 
 	}
 	return nil
@@ -160,16 +158,16 @@ func handleGet(conn net.Conn, req *http.Request, rw http.ResponseWriter) {
 
 	if validExtension(ext) {
 
-		fmt.Println(baseDir + req.URL.Path)
-		lockRW, found := mapFileTolock.Load(baseDir + req.URL.Path)
-		fmt.Println("Get lock", &lockRW)
+		path := baseDir + req.URL.Path
+
+		lockRW, found := mapFileTolock.Load(path)
+		//fmt.Println("Get lock", lockRW)
 
 		if found {
 			(lockRW.(*sync.RWMutex)).RLock()
 
-			fmt.Println(baseDir + req.URL.Path)
-			time.Sleep(10 * time.Second)
-			fmt.Println("Sleep Over.....")
+			//	time.Sleep(10 * time.Second)
+			//	fmt.Println("Sleep Over.....")
 
 			http.ServeFile(rw, req, baseDir+req.URL.Path)
 
@@ -203,10 +201,14 @@ func handlePost(conn net.Conn, req *http.Request, rw http.ResponseWriter) {
 
 	if validExtension(ext) && ext == pathExt {
 
-		lockRW, _ := mapFileTolock.LoadOrStore(req.URL, sync.RWMutex{})
-		fmt.Println("Post lock", &lockRW)
+		var lock *sync.RWMutex = &sync.RWMutex{}
+
+		lockRW, _ := mapFileTolock.LoadOrStore(path, lock)
 
 		(lockRW.(*sync.RWMutex)).Lock()
+
+		//reader := bufio.NewReader(os.Stdin)
+		//fmt.Println(reader.ReadRune())
 
 		err := os.WriteFile(path, body, 0666)
 
