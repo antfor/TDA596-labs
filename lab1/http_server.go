@@ -19,17 +19,21 @@ import (
 	"golang.org/x/sync/semaphore"
 )
 
-const maxConections int64 = 10
+const maxConections int64 = 10 // Max number of connections
 
-var sem = semaphore.NewWeighted(maxConections)
+var sem = semaphore.NewWeighted(maxConections) // Cap the number of goroutines to maxConnections
 var ctx context.Context
 
-var mapFileTolock sync.Map
+var mapFileTolock sync.Map // Map a read/write lock to every file
 
-const baseDir string = "./data"
+const baseDir string = "./data" // All files sent to the server are put in this directory
 
-var validExt = [...]string{"html", "txt", "gif", "jpeg", "jpg", "css"}
+var validExt = [...]string{"html", "txt", "gif", "jpeg", "jpg", "css"} // The extensions the server accepts
+
+// Contents acceptable to the server
 var validContent = [...]string{"text/html", "text/plain", "image/gif", "image/jpeg", "image/jpeg", "text/css"}
+
+// Puts the valide extensions and content types into a map
 var mapContentToExt = func() map[string]string {
 	x := make(map[string]string)
 	for i := 0; i < len(validExt); i++ {
@@ -38,6 +42,7 @@ var mapContentToExt = func() map[string]string {
 	return x
 }()
 
+// Get the port, get the files and start listening
 func main() {
 
 	ctx = context.Background()
@@ -45,7 +50,7 @@ func main() {
 	port, valid := getPort()
 
 	if !valid {
-		panic("not a valid port")
+		panic("Not a valid port")
 	}
 
 	getFiles()
@@ -53,37 +58,37 @@ func main() {
 	listen(port)
 }
 
+// Iterate through all files in base directory
 func getFiles() error {
 	return filepath.Walk(baseDir, handleFile)
 }
 
+// Map a read write lock (pointer) to an existing file and store in a map
 func handleFile(path string, info fs.FileInfo, err error) error {
 
 	ext := filepath.Ext(path)
 
-	if len(ext) > 0 {
-		ext = ext[1:]
-	}
-
 	if validExtension(ext) {
-
-		newPath := "./" + strings.ReplaceAll(path, "\\", "/")
-		fmt.Println(newPath)
 
 		var lock *sync.RWMutex = &sync.RWMutex{}
 
-		mapFileTolock.Store(newPath, lock)
+		mapFileTolock.Store(path, lock)
 
 	}
 	return nil
 }
 
+/*
+Listen to the given port. For every new connection, spawn a Goroutine, at most 10
+
+Otherwise throw a panic
+*/
 func listen(port int) {
 
 	l, err := net.Listen("tcp", ":"+strconv.Itoa(port))
 
 	if err != nil {
-		panic("could not listen to port")
+		panic("Could not listen to port")
 	}
 
 	defer l.Close()
@@ -93,10 +98,10 @@ func listen(port int) {
 		conn, err := l.Accept()
 
 		if err != nil {
-			panic("error in accpeting connection")
+			panic("Error in accepting connection")
 		}
 
-		fmt.Println("accpeted connection")
+		fmt.Println("Accepted connection")
 		fmt.Println(runtime.NumGoroutine())
 
 		sem.Acquire(ctx, 1)
@@ -106,10 +111,10 @@ func listen(port int) {
 			defer conn.Close()
 			defer sem.Release(1)
 
-			fmt.Println("serve connection")
+			fmt.Println("Serve connection")
 			handleConnection(conn)
 
-			fmt.Println("done")
+			fmt.Println("Done")
 
 		}()
 
@@ -117,6 +122,11 @@ func listen(port int) {
 
 }
 
+/*
+Handle an accepted connection
+
+Write the respons to the ResponseWriter NewRecorder
+*/
 func handleConnection(conn net.Conn) {
 
 	rw := httptest.NewRecorder()
@@ -131,11 +141,21 @@ func handleConnection(conn net.Conn) {
 	rw.Result().Write(conn)
 }
 
+/*
+Get and parse the request from the connection
+
+Return the parsed request
+*/
 func request(conn net.Conn) (*http.Request, error) {
 	scanner := bufio.NewReader(conn)
 	return http.ReadRequest(scanner)
 }
 
+/*
+Call the corresponding method that was in the request
+
+Otherwise throw an "Not implemented" error
+*/
 func handleRequest(conn net.Conn, req *http.Request, rw http.ResponseWriter) {
 
 	switch req.Method {
@@ -148,28 +168,27 @@ func handleRequest(conn net.Conn, req *http.Request, rw http.ResponseWriter) {
 	}
 }
 
+/*
+If the user request a valid file that exist on the server, do serverFile
+
+Otherwise throw an appropriate error (404 or 501)
+
+Because it's a read/write lock multiple concurrent reads can be done on the same file
+*/
 func handleGet(conn net.Conn, req *http.Request, rw http.ResponseWriter) {
 
 	ext := filepath.Ext(req.URL.Path)
-
-	if len(ext) > 0 {
-		ext = ext[1:]
-	}
 
 	if validExtension(ext) {
 
 		path := baseDir + req.URL.Path
 
-		lockRW, found := mapFileTolock.Load(path)
-		//fmt.Println("Get lock", lockRW)
+		lockRW, found := mapFileTolock.Load(cleanURL(path))
 
 		if found {
 			(lockRW.(*sync.RWMutex)).RLock()
 
-			//	time.Sleep(10 * time.Second)
-			//	fmt.Println("Sleep Over.....")
-
-			http.ServeFile(rw, req, baseDir+req.URL.Path)
+			http.ServeFile(rw, req, path)
 
 			(lockRW.(*sync.RWMutex)).RUnlock()
 		} else {
@@ -181,6 +200,23 @@ func handleGet(conn net.Conn, req *http.Request, rw http.ResponseWriter) {
 	}
 }
 
+/*
+Write to a exising file or create a new file and store it in the base directory
+
+	Otherwise throw an appropriate error (501)
+
+	Also it tries to detect the content type of the byte data send by the user (with http.DetectContentType)
+
+	And controlles that it is the same as the content type provided by the user
+
+	His is done so malicious files wont end up on he server
+
+	Because this is a read/write lock when this get hold of the lock
+
+	No other client can read or write to it
+
+If it's an new file it creates a new lock and add it to the sync.Map
+*/
 func handlePost(conn net.Conn, req *http.Request, rw http.ResponseWriter) {
 
 	body, err := io.ReadAll(req.Body)
@@ -193,9 +229,9 @@ func handlePost(conn net.Conn, req *http.Request, rw http.ResponseWriter) {
 	ext := mapContentToExt[content]
 
 	path := baseDir + req.URL.Path
-	pathExt := filepath.Ext(req.URL.Path)
 
-	if len(ext) > 0 {
+	pathExt := filepath.Ext(req.URL.Path)
+	if len(pathExt) > 0 && pathExt[0] == '.' {
 		pathExt = pathExt[1:]
 	}
 
@@ -203,19 +239,16 @@ func handlePost(conn net.Conn, req *http.Request, rw http.ResponseWriter) {
 
 		var lock *sync.RWMutex = &sync.RWMutex{}
 
-		lockRW, _ := mapFileTolock.LoadOrStore(path, lock)
+		lockRW, _ := mapFileTolock.LoadOrStore(cleanURL(path), lock)
 
 		(lockRW.(*sync.RWMutex)).Lock()
-
-		//reader := bufio.NewReader(os.Stdin)
-		//fmt.Println(reader.ReadRune())
 
 		err := os.WriteFile(path, body, 0666)
 
 		(lockRW.(*sync.RWMutex)).Unlock()
 
-		if err != nil {
-			http.Error(rw, "error writing file", http.StatusBadRequest)
+		if err != nil { //Error when saving the file to the server
+			http.Error(rw, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		} else {
 			rw.WriteHeader(http.StatusOK)
 		}
@@ -226,12 +259,25 @@ func handlePost(conn net.Conn, req *http.Request, rw http.ResponseWriter) {
 
 }
 
+/*
+Removes unnecessary http content information
+
+For example the input:
+Content-Type: text/html; charset=utf-8//
+
+Returns text/html
+*/
 func toContent(s string) string {
 
 	return s[strings.Index(s, ":")+1 : strings.Index(s, ";")]
 }
 
+// Checks if the extension is in the pool of the servers accepted extensions
 func validExtension(ext string) bool {
+
+	if len(ext) > 0 && ext[0] == '.' {
+		ext = ext[1:]
+	}
 
 	for _, a := range validExt {
 		if a == ext {
@@ -241,6 +287,25 @@ func validExtension(ext string) bool {
 	return false
 }
 
+/*
+Clean the URL, returning the shortest path name equivalent to the url
+
+Also makes it all lowercase
+*/
+func cleanURL(url string) string {
+
+	path := filepath.Clean(url)
+
+	return strings.ToLower(path)
+}
+
+/*
+Returns the port number that the user provided as argument on the command line
+
+	Returns the port and true if it's a valid port
+
+Otherwise returns -1 and false
+*/
 func getPort() (int, bool) {
 
 	sPort := os.Args[1]

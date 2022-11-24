@@ -14,7 +14,7 @@ import (
 	"golang.org/x/sync/semaphore"
 )
 
-const maxConections int64 = 10
+const maxConections int64 = 10 // Max number of connections
 
 var sem = semaphore.NewWeighted(maxConections)
 var ctx context.Context
@@ -32,6 +32,13 @@ func main() {
 	listen(port)
 }
 
+/*
+Listen to the given port
+
+	For every new connection, spawn a Goroutine, at most 10
+
+Otherwise throw a panic
+*/
 func listen(port int) {
 
 	l, err := net.Listen("tcp", ":"+strconv.Itoa(port))
@@ -71,6 +78,11 @@ func listen(port int) {
 
 }
 
+/*
+Handle an accepted connection
+
+Write the respons to the ResponseWriter NewRecorder
+*/
 func handleConnection(conn net.Conn) {
 
 	rw := httptest.NewRecorder()
@@ -89,11 +101,21 @@ func handleConnection(conn net.Conn) {
 
 }
 
+/*
+Get and parse the request from the connection
+
+Return the parsed request
+*/
 func request(conn net.Conn) (*http.Request, error) {
 	scanner := bufio.NewReader(conn)
 	return http.ReadRequest(scanner)
 }
 
+/*
+Call the corresponding method that was in the request
+
+Otherwise throw an "Not implemented" error
+*/
 func handleRequest(conn net.Conn, req *http.Request, rw http.ResponseWriter) bool {
 
 	switch req.Method {
@@ -105,10 +127,18 @@ func handleRequest(conn net.Conn, req *http.Request, rw http.ResponseWriter) boo
 	}
 }
 
+/*
+Issue a GET to the specified URL
+
+	Return true if it succeded and writes the result to the connection
+
+Otherwise return false and throw a bad request error (501)
+*/
 func handleGet(conn net.Conn, req *http.Request, rw http.ResponseWriter) bool {
 
 	url := req.URL.String()
 
+	// Remove the first "/" (necessary when we are sending a proxy request from the web-browser)
 	if len(url) > 0 && url[0] == '/' {
 		url = url[1:]
 	}
@@ -125,6 +155,13 @@ func handleGet(conn net.Conn, req *http.Request, rw http.ResponseWriter) bool {
 
 }
 
+/*
+Returns the port number that the user provided as argument on the command line
+
+	Returns the port and true if it's a valid port
+
+Otherwise returns -1 and false
+*/
 func getPort() (int, bool) {
 
 	sPort := os.Args[1]
