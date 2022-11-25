@@ -25,4 +25,22 @@ Proxy
         curl -v -x http://proxyIP:ProxyPort/ -X GET http://IP:Port/directoryToTheFileYouWant.extension
 
     to send a prox request in the web browser:
-        http://proxyIP:ProxyPort/http://IP:Port/directoryToTheFileYouWant.extension
+        http://proxyIP:ProxyPort/http://serverIP:serverPort/directoryToTheFileYouWant.extension
+
+
+How we moved server and proxy to the Cloud
+
+    1. We created docker containers for both the http_serer and the proxy
+
+    2. We stored them on AWS as an Elastic Container Registry
+
+    3. To run them we created an Elastic Container Service
+        
+        3.1 First we created tasks that used the containers stored in the ECR 
+
+        3.2 Then we created a new cluster for each task
+
+        3.3 We ran the two tasks on the two separate clusters
+        
+    4. Now it is all on the cloud 
+
