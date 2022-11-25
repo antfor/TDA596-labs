@@ -47,14 +47,14 @@ var mapContentToExt = func() map[string]string {
 func main() {
 
 	ctx = context.Background()
-	/*
-		port, valid := getPort()
 
-		if !valid {
-			panic("Not a valid port")
-		}
-	*/
-	port := 8000
+	port, valid := getPort()
+
+	if !valid {
+		panic("Not a valid port")
+	}
+
+	//port := 8000
 
 	getFiles()
 
