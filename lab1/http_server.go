@@ -31,9 +31,9 @@ const baseDir string = "./data" // All files sent to the server are put in this 
 var validExt = [...]string{"html", "txt", "gif", "jpeg", "jpg", "css"} // The extensions the server accepts
 
 // Contents acceptable to the server
-var validContent = [...]string{"text/html", "text/plain", "image/gif", "image/jpeg", "image/jpeg", "text/css"}
+var validContent = [...]string{"text/html", "text/plain", "image/gif", "image/jpg", "image/jpeg", "text/css"}
 
-// Puts the valide extensions and content types into a map
+/* Puts the valide extensions and content types into a map
 var mapContentToExt = func() map[string]string {
 	x := make(map[string]string)
 	for i := 0; i < len(validExt); i++ {
@@ -41,17 +41,20 @@ var mapContentToExt = func() map[string]string {
 	}
 	return x
 }()
+*/
 
 // Get the port, get the files and start listening
 func main() {
 
 	ctx = context.Background()
+	/*
+		port, valid := getPort()
 
-	port, valid := getPort()
-
-	if !valid {
-		panic("Not a valid port")
-	}
+		if !valid {
+			panic("Not a valid port")
+		}
+	*/
+	port := 8000
 
 	getFiles()
 
@@ -72,7 +75,7 @@ func handleFile(path string, info fs.FileInfo, err error) error {
 
 		var lock *sync.RWMutex = &sync.RWMutex{}
 
-		mapFileTolock.Store(path, lock)
+		mapFileTolock.Store(cleanURL(path), lock)
 
 	}
 	return nil
@@ -181,9 +184,9 @@ func handleGet(conn net.Conn, req *http.Request, rw http.ResponseWriter) {
 
 	if validExtension(ext) {
 
-		path := baseDir + req.URL.Path
+		path := cleanURL(baseDir + req.URL.Path)
 
-		lockRW, found := mapFileTolock.Load(cleanURL(path))
+		lockRW, found := mapFileTolock.Load(path)
 
 		if found {
 			(lockRW.(*sync.RWMutex)).RLock()
@@ -225,21 +228,21 @@ func handlePost(conn net.Conn, req *http.Request, rw http.ResponseWriter) {
 		http.Error(rw, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 	}
 
-	content := toContent(http.DetectContentType(body))
-	ext := mapContentToExt[content]
+	//content := toContent(http.DetectContentType(body))
+	//ext := mapContentToExt[content]
 
-	path := baseDir + req.URL.Path
+	path := cleanURL(baseDir + req.URL.Path)
 
 	pathExt := filepath.Ext(req.URL.Path)
 	if len(pathExt) > 0 && pathExt[0] == '.' {
 		pathExt = pathExt[1:]
 	}
 
-	if validExtension(ext) && ext == pathExt {
+	if validExtension(pathExt) {
 
 		var lock *sync.RWMutex = &sync.RWMutex{}
 
-		lockRW, _ := mapFileTolock.LoadOrStore(cleanURL(path), lock)
+		lockRW, _ := mapFileTolock.LoadOrStore(path, lock)
 
 		(lockRW.(*sync.RWMutex)).Lock()
 
