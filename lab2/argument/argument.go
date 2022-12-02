@@ -8,7 +8,7 @@ import (
 
 type Argument struct {
 	A   string
-	p   int
+	P   int
 	Ja  string
 	Jp  int
 	Ts  int
@@ -27,14 +27,14 @@ func NewArg() (Argument, int) {
 
 	arg := Argument{}
 
-	for i := 1; i < len(os.Args); i += 2 {
+	for i := 0; i < len(os.Args); i += 2 {
 		fmt.Println(i, os.Args[i])
 
 		switch os.Args[i] {
 		case "-a":
 			arg.A = os.Args[i+1]
 		case "-p":
-			arg.p = getPort(os.Args[i+1])
+			arg.P = getPort(os.Args[i+1])
 		case "--ja":
 			arg.Ja = os.Args[i+1]
 		case "--jp":

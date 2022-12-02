@@ -7,10 +7,10 @@ import (
 	"math/big"
 )
 
-type Key string
+//type Key string
 
 //type IPaddress string
-
+/*
 type node struct {
 	ip   string
 	port int
@@ -21,7 +21,7 @@ type node struct {
 	fingers     []string
 	predecessor string
 	successors  []string
-}
+}*/
 
 func hash(elt string) *big.Int {
 	hasher := sha1.New()
@@ -29,26 +29,27 @@ func hash(elt string) *big.Int {
 	return new(big.Int).SetBytes(hasher.Sum(nil))
 }
 
-func main() {
+func main2() {
 	arg, argType := argument.NewArg()
 	fmt.Println(arg, "hej")
 
 	if argType == argument.Create {
-		n := node{}
+		// n := node{}
 
-		n.createRing()
+		// n.createRing()
 
 	} else if argType == argument.Join {
 
-		n := node{ip: arg.Ja, port: arg.Jp}
+		// n := node{ip: arg.Ja, port: arg.Jp}
 
-		n.joinRing(n)
+		// n.joinRing(n)
 	} else {
 		panic("invalid arguments")
 	}
 
 }
 
+/*
 func (n node) createRing() {
 	fmt.Println("CREATE")
 	n.predecessor = ""
@@ -98,3 +99,4 @@ func storeFile() {
 func printState() {
 
 }
+*/
