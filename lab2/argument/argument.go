@@ -27,7 +27,7 @@ func NewArg() (Argument, int) {
 
 	arg := Argument{}
 
-	for i := 0; i < len(os.Args); i += 2 {
+	for i := 1; i < len(os.Args); i += 2 {
 		fmt.Println(i, os.Args[i])
 
 		switch os.Args[i] {

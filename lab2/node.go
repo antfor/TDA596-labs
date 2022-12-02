@@ -1,29 +1,30 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
 	"lab2/argument"
-	"log"
 	"net"
 	"net/http"
 	"net/rpc"
+	"os"
 	"strconv"
 )
 
 type Node struct {
-	ip string
+	Ip string
 
-	port int
+	Port int
 
-	id string
+	Id string
 }
 
-type empty struct {
+type Empty struct {
 }
 
 var predecessor *Node
 
-var successors *Node
+var successor *Node
 
 var fingers *Node
 
@@ -38,71 +39,52 @@ func main() {
 		id = arg.I
 	}
 
-	me = &Node{ip: arg.A, port: arg.P, id: id}
-
-	fmt.Println("me: ", me)
-	fmt.Println("me.ip: ", me.ip, arg.A)
-	fmt.Println("me.port: ", me.port, arg.P)
-
-	go RPC_server(me)
-
-	//time.Sleep(5000 * time.Millisecond)
-
-	call(me, "Node.Ping", me)
-	//call(me, "Ping", me)
+	me = &Node{Ip: arg.A, Port: arg.P, Id: id}
 
 	if argType == argument.Create {
-		//	n := node{}
 
-		//n.create()
+		fmt.Println("RPC")
+		RPC_server(me)
 
 	} else if argType == argument.Join {
 
-		//n := node{ip: arg.Ja, port: arg.Jp}
+		call(me, "Node.Ping", me, me)
 
-		//n.join(n)
 	} else {
 		panic("invalid arguments")
 	}
 
+	read_stdin()
+
+}
+
+func read_stdin() {
+
+	reader := bufio.NewReader(os.Stdin)
+
 	for {
-
+		cmd, _ := reader.ReadString('\n')
+		fmt.Println(cmd)
 	}
-
 }
 
 func RPC_server(n *Node) {
 
-	fmt.Println("RPC_server 1")
-
 	rpc.Register(n)
 	rpc.HandleHTTP()
-	l, err := net.Listen("tcp", ":"+strconv.Itoa(n.port))
+	l, err := net.Listen("tcp", ":"+strconv.Itoa(n.Port))
 
 	if err != nil {
-		log.Fatal("listen error:", err)
-		fmt.Println("The error is: ", err)
+		fmt.Println("error in RPC_server: ", err)
 	}
-
-	for {
-		fmt.Println("accept")
-		l.Accept()
-		fmt.Println("done")
-		err := http.Serve(l, nil)
-		fmt.Println("serve:")
-		fmt.Println(err)
-	}
-
+	go http.Serve(l, nil)
 }
 
-func (n *Node) Join(np *Node, done *bool) error {
+func (n *Node) Join(np *Node, _ *Empty) error {
 
 	predecessor = nil
-	//	err = call(np, "func(n) {}",) //find_predecessor
-	*done = true
 
-	//	return err
-	return nil
+	return call(np, "Node.Find_successor", n, successor)
 }
 
 func (n *Node) Find_successor(id *string, nr *Node) error {
@@ -113,13 +95,13 @@ func (n *Node) Closest_preceding_node(np *Node, done *bool) error {
 	return nil
 }
 
-func (n *Node) Create(_ *empty, _ *empty) error {
+func (n *Node) Create(_ *Empty, _ *Empty) error {
 	predecessor = nil
-	successors = n
+	successor = n
 	return nil
 }
 
-func (n *Node) Stabilze(_ *empty, _ *empty) error {
+func (n *Node) Stabilze(_ *Empty, _ *Empty) error {
 	return nil
 }
 
@@ -127,34 +109,24 @@ func (n *Node) Notify(np *Node, done *bool) error {
 	return nil
 }
 
-func (n *Node) Fix_fingers(_ *empty, _ *empty) error {
+func (n *Node) Fix_fingers(_ *Empty, _ *Empty) error {
 	return nil
 }
 
-func (n *Node) Check_predessesor(_ *empty, _ *empty) error {
+func (n *Node) Check_predessesor(_ *Empty, _ *Empty) error {
 
 	return nil
 }
 
-func call(n *Node, f string, arg *Node) error {
+func call(n *Node, f string, arg *Node, reply *Node) error {
 
-	fmt.Println("call", (n.ip + ":" + strconv.Itoa(n.port)))
-
-	//rpc.Register(n)
-
-	client, err := rpc.DialHTTP("tcp", n.ip+":"+strconv.Itoa(n.port))
-
-	fmt.Println("call err", err)
+	client, err := rpc.DialHTTP("tcp", n.Ip+":"+strconv.Itoa(n.Port))
 
 	if err != nil {
 		return err
 	}
 
-	fmt.Println("call 2")
-	err = client.Call(f, arg, &empty{})
-
-	return err
-
+	return client.Call(f, arg, reply)
 }
 
 func callID(n Node, f string, id string) {
@@ -165,7 +137,7 @@ func callEmpty(n Node, f string) {
 
 }
 
-func (n *Node) Ping(_ *Node, _ *empty) error {
+func (n *Node) Ping(_ *Node, _ *Node) error {
 	fmt.Println("pong")
 	return nil
 }
