@@ -2,8 +2,10 @@ package main
 
 import (
 	"bufio"
+	"crypto/sha1"
 	"fmt"
 	"lab2/argument"
+	"math/big"
 	"net"
 	"net/http"
 	"net/rpc"
@@ -22,11 +24,13 @@ type Node struct {
 type Empty struct {
 }
 
+const m = 32 // Maybe need to change
+
 var predecessor *Node
 
 var successor *Node
 
-var fingers *Node
+var fingers []*Node
 
 var me *Node
 
@@ -40,15 +44,22 @@ func main() {
 	}
 
 	me = &Node{Ip: arg.A, Port: arg.P, Id: id}
+	RPC_server(me)
 
 	if argType == argument.Create {
 
-		fmt.Println("RPC")
-		RPC_server(me)
+		me.Create(&Empty{}, &Empty{})
 
 	} else if argType == argument.Join {
 
-		call(me, "Node.Ping", me, me)
+		fmt.Println("Before: ", successor.Id)
+
+		id := arg.Ja + ":" + strconv.Itoa(arg.Jp)
+		node := &Node{Ip: arg.Ja, Port: arg.Jp, Id: id}
+
+		me.Join(node, &Empty{})
+
+		fmt.Println("After: ", successor.Id)
 
 	} else {
 		panic("invalid arguments")
@@ -80,6 +91,12 @@ func RPC_server(n *Node) {
 	go http.Serve(l, nil)
 }
 
+func (n *Node) Create(_ *Empty, _ *Empty) error {
+	predecessor = nil
+	successor = n
+	return nil
+}
+
 func (n *Node) Join(np *Node, _ *Empty) error {
 
 	predecessor = nil
@@ -88,16 +105,40 @@ func (n *Node) Join(np *Node, _ *Empty) error {
 }
 
 func (n *Node) Find_successor(id *string, nr *Node) error {
-	return nil
+
+	nID := hash(*id)
+
+	if hash(n.Id).Cmp(nID) == -1 && nID.Cmp(hash(successor.Id)) >= 0 {
+		nr = successor
+		return nil
+	} else {
+		n0 := &Node{}
+		err := n.Closest_preceding_node(id, n0)
+
+		if err != nil {
+			return err
+		}
+
+		return call(n0, "Node.Find_successor", id, nr)
+	}
+
 }
 
-func (n *Node) Closest_preceding_node(np *Node, done *bool) error {
-	return nil
-}
+func (n *Node) Closest_preceding_node(id *string, nr *Node) error {
 
-func (n *Node) Create(_ *Empty, _ *Empty) error {
-	predecessor = nil
-	successor = n
+	nHash := hash(n.Id)
+	idHash := hash(*id)
+
+	for i := m; i > 0; i-- {
+		fHash := hash(fingers[i].Id)
+
+		if nHash.Cmp(fHash) == -1 && fHash.Cmp(idHash) == -1 {
+			nr = fingers[i]
+			return nil
+		}
+	}
+
+	nr = n
 	return nil
 }
 
@@ -118,7 +159,7 @@ func (n *Node) Check_predessesor(_ *Empty, _ *Empty) error {
 	return nil
 }
 
-func call(n *Node, f string, arg *Node, reply *Node) error {
+func call[T any](n *Node, f string, arg *T, reply *Node) error {
 
 	client, err := rpc.DialHTTP("tcp", n.Ip+":"+strconv.Itoa(n.Port))
 
@@ -129,15 +170,13 @@ func call(n *Node, f string, arg *Node, reply *Node) error {
 	return client.Call(f, arg, reply)
 }
 
-func callID(n Node, f string, id string) {
-
-}
-
-func callEmpty(n Node, f string) {
-
-}
-
 func (n *Node) Ping(_ *Node, _ *Node) error {
 	fmt.Println("pong")
 	return nil
+}
+
+func hash(elt string) *big.Int {
+	hasher := sha1.New()
+	hasher.Write([]byte(elt))
+	return new(big.Int).SetBytes(hasher.Sum(nil))
 }

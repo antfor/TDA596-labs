@@ -1,10 +1,8 @@
 package main
 
 import (
-	"crypto/sha1"
 	"fmt"
 	"lab2/argument"
-	"math/big"
 )
 
 //type Key string
@@ -22,13 +20,13 @@ type node struct {
 	predecessor string
 	successors  []string
 }*/
-
+/*
 func hash(elt string) *big.Int {
 	hasher := sha1.New()
 	hasher.Write([]byte(elt))
 	return new(big.Int).SetBytes(hasher.Sum(nil))
 }
-
+*/
 func main2() {
 	arg, argType := argument.NewArg()
 	fmt.Println(arg, "hej")
