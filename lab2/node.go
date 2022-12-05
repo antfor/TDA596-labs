@@ -5,6 +5,7 @@ import (
 	"crypto/sha1"
 	"fmt"
 	"lab2/argument"
+	"math"
 	"math/big"
 	"net"
 	"net/http"
@@ -26,9 +27,9 @@ type Empty struct {
 
 const m = 32 // Maybe need to change
 
-var predecessor *Node
+var predecessor *Node = &Node{}
 
-var successor *Node
+var successor *Node = &Node{}
 
 var fingers []*Node
 
@@ -52,14 +53,10 @@ func main() {
 
 	} else if argType == argument.Join {
 
-		fmt.Println("Before: ", successor.Id)
-
 		id := arg.Ja + ":" + strconv.Itoa(arg.Jp)
 		node := &Node{Ip: arg.Ja, Port: arg.Jp, Id: id}
 
 		me.Join(node, &Empty{})
-
-		fmt.Println("After: ", successor.Id)
 
 	} else {
 		panic("invalid arguments")
@@ -101,7 +98,7 @@ func (n *Node) Join(np *Node, _ *Empty) error {
 
 	predecessor = nil
 
-	return call(np, "Node.Find_successor", n, successor)
+	return call(np, "Node.Find_successor", &n.Id, successor)
 }
 
 func (n *Node) Find_successor(id *string, nr *Node) error {
@@ -109,7 +106,9 @@ func (n *Node) Find_successor(id *string, nr *Node) error {
 	nID := hash(*id)
 
 	if hash(n.Id).Cmp(nID) == -1 && nID.Cmp(hash(successor.Id)) >= 0 {
-		nr = successor
+		fmt.Println("hello?", successor.Id)
+		*nr = *successor
+		fmt.Println("hello2?", nr.Id)
 		return nil
 	} else {
 		n0 := &Node{}
@@ -133,20 +132,49 @@ func (n *Node) Closest_preceding_node(id *string, nr *Node) error {
 		fHash := hash(fingers[i].Id)
 
 		if nHash.Cmp(fHash) == -1 && fHash.Cmp(idHash) == -1 {
-			nr = fingers[i]
+			*nr = *fingers[i]
 			return nil
 		}
 	}
 
-	nr = n
+	*nr = *n
+	return nil
+}
+
+func (n *Node) GetPredecessor(_ *Empty, nr *Node) error {
+	*nr = *predecessor
 	return nil
 }
 
 func (n *Node) Stabilze(_ *Empty, _ *Empty) error {
-	return nil
+
+	x := &Node{}
+
+	err := call(successor, "Node.GetPredecessor", &Empty{}, x)
+
+	if err != nil {
+		return err
+	}
+
+	nHash := hash(n.Id)
+	sHash := hash(successor.Id)
+	xHash := hash(x.Id)
+
+	if nHash.Cmp(xHash) == -1 && xHash.Cmp(sHash) == -1 {
+		successor = x
+	}
+
+	return call(successor, "Node.Notify", n, &Empty{})
 }
 
-func (n *Node) Notify(np *Node, done *bool) error {
+func (n *Node) Notify(np *Node, _ *Empty) error {
+
+	npHash := hash(np.Id)
+	nHash := hash(n.Id)
+
+	if predecessor == nil || (hash(predecessor.Id).Cmp(npHash) == -1 && npHash.Cmp(nHash) == -1) {
+		predecessor = np
+	}
 	return nil
 }
 
@@ -159,7 +187,7 @@ func (n *Node) Check_predessesor(_ *Empty, _ *Empty) error {
 	return nil
 }
 
-func call[T any](n *Node, f string, arg *T, reply *Node) error {
+func call[A any, R any](n *Node, f string, arg *A, reply *R) error {
 
 	client, err := rpc.DialHTTP("tcp", n.Ip+":"+strconv.Itoa(n.Port))
 
@@ -178,5 +206,9 @@ func (n *Node) Ping(_ *Node, _ *Node) error {
 func hash(elt string) *big.Int {
 	hasher := sha1.New()
 	hasher.Write([]byte(elt))
-	return new(big.Int).SetBytes(hasher.Sum(nil))
+
+	hashValue := new(big.Int).SetBytes(hasher.Sum(nil))
+
+	key := new(big.Int).Mod(hashValue, big.NewInt(int64(math.Pow(2, m))))
+	return key
 }
