@@ -1,100 +1,87 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
 	"lab2/argument"
+	"lab2/node"
+	"net"
+	"net/http"
+	"net/rpc"
+	"os"
+	"strconv"
+	"time"
 )
 
-//type Key string
+var me *node.Node
 
-//type IPaddress string
-/*
-type node struct {
-	ip   string
-	port int
-	key  *big.Int
+func main() {
 
-	keys_to_string map[Key]string
-
-	fingers     []string
-	predecessor string
-	successors  []string
-}*/
-/*
-func hash(elt string) *big.Int {
-	hasher := sha1.New()
-	hasher.Write([]byte(elt))
-	return new(big.Int).SetBytes(hasher.Sum(nil))
-}
-*/
-func main2() {
 	arg, argType := argument.NewArg()
-	fmt.Println(arg, "hej")
+	id := node.Hash(arg.A + ":" + strconv.Itoa(arg.P))
+
+	if arg.I != "" {
+		id = arg.I
+	}
+
+	me = &node.Node{Ip: arg.A, Port: arg.P, Id: id}
+	RPC_server(me)
 
 	if argType == argument.Create {
-		// n := node{}
 
-		// n.createRing()
+		err := me.Create(&node.Empty{}, &node.Empty{})
+
+		fmt.Println("create err:", err)
 
 	} else if argType == argument.Join {
 
-		// n := node{ip: arg.Ja, port: arg.Jp}
+		id := node.Hash(arg.Ja + ":" + strconv.Itoa(arg.Jp))
 
-		// n.joinRing(n)
+		Jnode := &node.Node{Ip: arg.Ja, Port: arg.Jp, Id: id}
+
+		err := me.Join(Jnode, &node.Empty{})
+
+		fmt.Println("join err:", err)
+
 	} else {
 		panic("invalid arguments")
 	}
 
-}
+	go timer(arg.Tcp, func() { me.Check_predessesor(&node.Empty{}, &node.Empty{}) })
 
-/*
-func (n node) createRing() {
-	fmt.Println("CREATE")
-	n.predecessor = ""
-	n.successors = append(n.successors, n.ip)
-}
+	go timer(arg.Ts, func() { me.Stabilze(&node.Empty{}, &node.Empty{}) })
 
-func (n node) joinRing(n2 node) {
-	fmt.Println("JOIN")
-	n.predecessor = ""
-	n.successors = append(n.successors, n2.findSuccessor(n))
-}
+	go timer(arg.Tff, func() { me.Fix_fingers(&node.Empty{}, &node.Empty{}) })
 
-func lookUp() {
+	read_stdin()
 
 }
 
-func (n node) findSuccessor(n2 node) node {
+func read_stdin() {
 
-	return node{}
+	reader := bufio.NewReader(os.Stdin)
+
+	for {
+		cmd, _ := reader.ReadString('\n')
+		fmt.Println(cmd)
+	}
 }
 
-func (n node) closest_preceding_node() {
-
+func timer(timeMs int, f func()) {
+	for {
+		time.Sleep(time.Duration(timeMs) * time.Millisecond)
+		f()
+	}
 }
 
-// Stabilze stuff
-func stabilze() {
+func RPC_server(n *node.Node) {
 
+	rpc.Register(n)
+	rpc.HandleHTTP()
+	l, err := net.Listen("tcp", ":"+strconv.Itoa(n.Port))
+
+	if err != nil {
+		fmt.Println("error in RPC_server: ", err)
+	}
+	go http.Serve(l, nil)
 }
-
-func notify() {
-
-}
-
-func fix_fingers() {
-
-}
-
-func check_predessesor() {
-
-}
-
-func storeFile() {
-
-}
-
-func printState() {
-
-}
-*/
