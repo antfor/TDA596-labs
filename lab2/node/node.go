@@ -3,7 +3,6 @@ package node
 import (
 	"crypto/sha1"
 	"fmt"
-	"math"
 	"math/big"
 	"net/rpc"
 	"strconv"
@@ -21,6 +20,7 @@ type Empty struct {
 }
 
 const m = 4 // Maybe need to change
+var maxNodes = new(big.Int).Exp(big.NewInt(2), big.NewInt(m), nil)
 
 var predecessor *Node = &Node{}
 
@@ -33,6 +33,7 @@ func (n *Node) Create(_ *Empty, _ *Empty) error {
 	predecessor = nil
 	successor = n
 
+	// init successor list and finger table appropriately (i.e., all will point to the client itself)
 	for i := 0; i < m; i++ {
 		fingers[i] = n
 	}
@@ -49,11 +50,9 @@ func (n *Node) Join(np *Node, _ *Empty) error {
 
 func (n *Node) Find_successor(id *string, nr *Node) error {
 
-	aID := toBigInt(*id)
-	nID := toBigInt(n.Id)
-	sID := toBigInt(successor.Id)
+	fmt.Println("Find_successor")
 
-	if nID.Cmp(aID) == -1 && aID.Cmp(sID) >= 0 {
+	if between(*id, n.Id, successor.Id, true) {
 
 		*nr = *successor
 		return nil
@@ -65,6 +64,11 @@ func (n *Node) Find_successor(id *string, nr *Node) error {
 			return err
 		}
 
+		if *n0 == *n { // ???
+			*nr = *n
+			return nil
+		}
+
 		return Call(n0, "Node.Find_successor", id, nr)
 	}
 
@@ -72,16 +76,17 @@ func (n *Node) Find_successor(id *string, nr *Node) error {
 
 func (n *Node) Closest_preceding_node(id *string, nr *Node) error {
 
-	idID := toBigInt(*id)
-	nID := toBigInt(n.Id)
-
 	for i := m - 1; i >= 0; i-- {
 
-		fID := toBigInt(fingers[i].Id)
+		finger := fingers[i]
 
-		if nID.Cmp(fID) == -1 && fID.Cmp(idID) == -1 {
-			*nr = *fingers[i]
-			return nil
+		if finger != nil {
+
+			if between(finger.Id, n.Id, *id, false) {
+
+				*nr = *finger
+				return nil
+			}
 		}
 	}
 
@@ -109,11 +114,8 @@ func (n *Node) Stabilze(_ *Empty, _ *Empty) error {
 	}
 
 	if (*x != Node{}) {
-		sID := toBigInt(successor.Id)
-		nID := toBigInt(n.Id)
-		xID := toBigInt(x.Id)
 
-		if nID.Cmp(xID) == -1 && xID.Cmp(sID) == -1 {
+		if between(x.Id, n.Id, successor.Id, false) {
 			successor = x
 		}
 	}
@@ -123,34 +125,27 @@ func (n *Node) Stabilze(_ *Empty, _ *Empty) error {
 
 func (n *Node) Notify(np *Node, _ *Empty) error {
 
-	npID := toBigInt(np.Id)
-	nID := toBigInt(n.Id)
-
 	if predecessor == nil {
 		predecessor = np
+		return nil
 	}
 
-	pID := toBigInt(predecessor.Id)
-
-	if pID.Cmp(npID) == -1 && npID.Cmp(nID) == -1 {
+	if between(np.Id, predecessor.Id, n.Id, false) {
 		predecessor = np
 	}
 	return nil
 }
 
 func (n *Node) Fix_fingers(_ *Empty, _ *Empty) error {
-	fmt.Println("fix_fingers")
+
 	next = next + 1
 	if next > m-1 {
 		next = 0
 	}
 
-	nID := toBigInt(n.Id)
-	pow := big.NewInt(int64(math.Pow(2, float64(next-1))))
-	id := nID.Add(nID, pow).Text(16)
+	id := jump(n.Id, next)
 
-	Call(n, "Node.Find_successor", &id, fingers[next])
-	return nil
+	return Call(n, "Node.Find_successor", &id, fingers[next])
 }
 
 func (n *Node) Check_predessesor(_ *Empty, _ *Empty) error {
@@ -168,6 +163,12 @@ func (n *Node) Check_predessesor(_ *Empty, _ *Empty) error {
 	return nil
 }
 
+func (n *Node) Ping(_ *Empty, reply *string) error {
+
+	*reply = "pong"
+	return nil
+}
+
 func Call[A any, R any](n *Node, f string, arg *A, reply *R) error {
 
 	client, err := rpc.DialHTTP("tcp", n.Ip+":"+strconv.Itoa(n.Port))
@@ -176,6 +177,7 @@ func Call[A any, R any](n *Node, f string, arg *A, reply *R) error {
 		return err
 	}
 
+	defer client.Close()
 	return client.Call(f, arg, reply)
 }
 
@@ -185,7 +187,8 @@ func Hash(elt string) string {
 
 	hashValue := new(big.Int).SetBytes(hasher.Sum(nil))
 
-	key := new(big.Int).Mod(hashValue, big.NewInt(int64(math.Pow(2, m))))
+	key := new(big.Int).Mod(hashValue, maxNodes)
+
 	return key.Text(16)
 }
 
@@ -196,8 +199,29 @@ func toBigInt(key string) *big.Int {
 	return keyID
 }
 
-func (n *Node) Ping(_ *Empty, reply *string) error {
+func jump(startID string, finger int) string {
+	start := toBigInt(startID)
+	jump := new(big.Int).Exp(big.NewInt(2), big.NewInt(int64(finger)-1), nil)
+	dest := start.Add(start, jump)
 
-	*reply = "pong"
-	return nil
+	return new(big.Int).Mod(dest, maxNodes).Text(16)
+}
+
+// if inclusive = false: returns true if a < x < b  otherwise false
+// if inclusive = true:  returns true if a < x <= b otherwise false
+func between(xs string, as string, bs string, inclusive bool) bool {
+
+	x := toBigInt(xs)
+	a := toBigInt(as)
+	b := toBigInt(bs)
+
+	if a.Cmp(x) == -1 && x.Cmp(b) == -1 {
+		return true
+	}
+
+	if inclusive && x.Cmp(b) == 0 {
+		return true
+	}
+
+	return false
 }

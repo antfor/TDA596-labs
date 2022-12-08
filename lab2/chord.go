@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/rpc"
 	"os"
+	"runtime"
 	"strconv"
 	"time"
 )
@@ -17,11 +18,14 @@ var me *node.Node
 
 func main() {
 
-	arg, argType := argument.NewArg()
+	arg, argType := argument.GetArg()
+
+	fmt.Println("args:", arg, "type: ", argType)
+
 	id := node.Hash(arg.A + ":" + strconv.Itoa(arg.P))
 
 	if arg.I != "" {
-		id = arg.I
+		id = node.Hash(arg.I)
 	}
 
 	me = &node.Node{Ip: arg.A, Port: arg.P, Id: id}
@@ -35,7 +39,7 @@ func main() {
 
 	} else if argType == argument.Join {
 
-		id := node.Hash(arg.Ja + ":" + strconv.Itoa(arg.Jp))
+		id := node.Hash(arg.Ja + ":" + strconv.Itoa(arg.Jp)) // todo call getId
 
 		Jnode := &node.Node{Ip: arg.Ja, Port: arg.Jp, Id: id}
 
@@ -64,6 +68,7 @@ func read_stdin() {
 	for {
 		cmd, _ := reader.ReadString('\n')
 		fmt.Println(cmd)
+		fmt.Println(runtime.NumGoroutine())
 	}
 }
 

@@ -3,7 +3,6 @@ package argument
 import (
 	"flag"
 	"regexp"
-	"strconv"
 )
 
 type Argument struct {
@@ -18,73 +17,100 @@ type Argument struct {
 	I   string
 }
 
+type ArgType int
+
+// argument types
 const (
-	Create = 0
-	Join   = 1
+	NotValid = -1
+	Create   = 0
+	Join     = 1
 )
 
-func NewArg() (Argument, int) {
+func GetArg() (Argument, ArgType) {
+
+	arg := setFlags()
+
+	validRange(arg)
+	isSpecified(arg)
+
+	validId(arg.I)
+	checkPort(arg.P)
+
+	argType := getArgType(arg)
+
+	if argType == Join {
+		checkPort(arg.Jp)
+	}
+
+	return arg, argType
+}
+
+func setFlags() Argument {
 
 	arg := Argument{}
 
-	aPtr := flag.String("a", "", "a string")
+	flag.StringVar(&arg.A, "a", "", "a string")
 
-	pPtr := flag.Int("p", -1, "an int")
+	flag.IntVar(&arg.P, "p", -1, "an int")
 
-	jaPtr := flag.String("ja", "", "a string")
-	jpPtr := flag.Int("jp", -1, "an int")
+	flag.StringVar(&arg.Ja, "ja", "", "a string")
+	flag.IntVar(&arg.Jp, "jp", -1, "an int")
 
-	tsPtr := flag.Int("ts", -1, "an int")
-	tffPtr := flag.Int("tff", -1, "an int")
-	tcpPtr := flag.Int("tcp", -1, "an int")
+	flag.IntVar(&arg.Ts, "ts", -1, "an int")
+	flag.IntVar(&arg.Tff, "tff", -1, "an int")
+	flag.IntVar(&arg.Tcp, "tcp", -1, "an int")
 
-	rPtr := flag.Int("r", -1, "an int")
+	flag.IntVar(&arg.R, "r", -1, "an int")
 
-	iPtr := flag.String("i", "", "a string")
+	flag.StringVar(&arg.I, "i", "", "a string")
 
 	flag.Parse()
 
-	arg.A = *aPtr
+	return arg
+}
 
-	arg.P = checkPort(*pPtr)
+func getArgType(arg Argument) ArgType {
 
-	arg.Ja = *jaPtr
-	arg.Jp = *jpPtr
-
-	arg.Ts = checkRange(*tsPtr, 1, 60000)
-	arg.Tff = checkRange(*tffPtr, 1, 60000)
-	arg.Tcp = checkRange(*tcpPtr, 1, 60000)
-
-	arg.R = checkRange(*rPtr, 1, 32)
-
-	if *iPtr != "" {
-		match, err := regexp.MatchString("([0-9]|[a-f]|[A-F]){40}", *iPtr)
-
-		if err != nil || !match {
-			panic("Invalid identifier")
-		}
-		arg.I = *iPtr
+	if arg.Ja == "" && arg.Jp == -1 {
+		return Create
 	}
 
+	if arg.Ja != "" && arg.Jp != -1 {
+
+		return Join
+	}
+
+	panic("Not a valid argument")
+
+	return NotValid
+}
+
+func isSpecified(arg Argument) {
 	if arg.A == "" {
 		panic("IP must be specified")
 	}
 	if (arg.Ja != "" && arg.Jp == -1) && (arg.Ja == "" && arg.Jp != -1) {
-		panic("Invalid Argument")
+		panic("Ja and Jp must both be specified/unspecified")
 	}
+}
 
-	if arg.Ja == "" && arg.Jp == -1 {
-		return arg, Create
+func validId(id string) {
+
+	if id != "" {
+		match, err := regexp.MatchString("([0-9]|[a-f]|[A-F]){40}", id)
+
+		if err != nil || !match {
+			panic("Invalid identifier")
+		}
 	}
+}
 
-	arg.Jp = checkPort(arg.Jp)
+func validRange(arg Argument) {
+	checkRange(arg.Ts, 1, 60000)
+	checkRange(arg.Tff, 1, 60000)
+	checkRange(arg.Tcp, 1, 60000)
 
-	if arg.Ja != "" && arg.Jp != -1 {
-
-		return arg, Join
-	}
-
-	return arg, -1
+	checkRange(arg.R, 1, 32)
 }
 
 func checkRange(time int, min int, max int) int {
@@ -98,17 +124,6 @@ func checkRange(time int, min int, max int) int {
 func checkPort(portNum int) int {
 
 	if portNum < 0 || portNum > 65535 {
-		panic("Error in argument: not a valid port")
-	}
-
-	return portNum
-}
-
-func getPort(sPort string) int {
-
-	portNum, err := strconv.Atoi(sPort)
-
-	if err != nil || portNum < 0 || portNum > 65535 {
 		panic("Error in argument: not a valid port")
 	}
 
