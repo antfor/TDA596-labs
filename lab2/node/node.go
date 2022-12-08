@@ -19,24 +19,52 @@ type Node struct {
 type Empty struct {
 }
 
-const m = 4 // Maybe need to change
+const m = 3 // Maybe need to change
 var maxNodes = new(big.Int).Exp(big.NewInt(2), big.NewInt(m), nil)
 
 var predecessor *Node = &Node{}
 
-var successor *Node = &Node{}
-
 var next int = 0
 var fingers [m]*Node
 
+func (n *Node) Print() {
+	fmt.Println("	ip: ", n.Ip)
+	fmt.Println("	port: ", n.Port)
+
+	value, _ := strconv.ParseInt(n.Id, 16, 64)
+	fmt.Println("	id (base 10)", value)
+}
+
+func (n *Node) PrintState() {
+	fmt.Println("me: ")
+	n.Print()
+	if predecessor != nil {
+		fmt.Println("predecessor: ")
+		predecessor.Print()
+	} else {
+		fmt.Println("predecessor is nil ")
+	}
+
+	fmt.Println("successor: ")
+
+	fingers[0].Print()
+	fmt.Println("finger table: ")
+
+	for i := 0; i < m; i++ {
+		if fingers[i] != nil {
+			fmt.Println("finger", i, ":")
+			fingers[i].Print()
+		} else {
+			fmt.Println("finger ", i, " is nil")
+		}
+	}
+
+}
+
 func (n *Node) Create(_ *Empty, _ *Empty) error {
 	predecessor = nil
-	successor = n
 
-	// init successor list and finger table appropriately (i.e., all will point to the client itself)
-	for i := 0; i < m; i++ {
-		fingers[i] = n
-	}
+	fingers[0] = n
 
 	return nil
 }
@@ -45,26 +73,26 @@ func (n *Node) Join(np *Node, _ *Empty) error {
 
 	predecessor = nil
 
-	return Call(np, "Node.Find_successor", &n.Id, successor)
+	fingers[0] = &Node{Ip: "start"}
+	return Call(np, "Node.Find_successor", &n.Id, fingers[0])
 }
 
 func (n *Node) Find_successor(id *string, nr *Node) error {
 
-	fmt.Println("Find_successor")
+	if between(*id, n.Id, fingers[0].Id, true) {
 
-	if between(*id, n.Id, successor.Id, true) {
-
-		*nr = *successor
+		*nr = *fingers[0]
 		return nil
 	} else {
 		n0 := &Node{}
 		err := n.Closest_preceding_node(id, n0)
 
 		if err != nil {
+			fmt.Println("error in find_suc1: ", err)
 			return err
 		}
 
-		if *n0 == *n { // ???
+		if *n0 == *n {
 			*nr = *n
 			return nil
 		}
@@ -107,20 +135,21 @@ func (n *Node) Stabilze(_ *Empty, _ *Empty) error {
 
 	x := &Node{}
 
-	err := Call(successor, "Node.GetPredecessor", &Empty{}, x)
+	err := Call(fingers[0], "Node.GetPredecessor", &Empty{}, x)
 
 	if err != nil {
+		fmt.Println("error in stab:", err)
 		return err
 	}
 
 	if (*x != Node{}) {
 
-		if between(x.Id, n.Id, successor.Id, false) {
-			successor = x
+		if between(x.Id, n.Id, fingers[0].Id, false) {
+			fingers[0] = x
 		}
 	}
 
-	return Call(successor, "Node.Notify", n, &Empty{})
+	return Call(fingers[0], "Node.Notify", n, &Empty{})
 }
 
 func (n *Node) Notify(np *Node, _ *Empty) error {
@@ -145,7 +174,16 @@ func (n *Node) Fix_fingers(_ *Empty, _ *Empty) error {
 
 	id := jump(n.Id, next)
 
-	return Call(n, "Node.Find_successor", &id, fingers[next])
+	tmp := &Node{}
+	err := Call(n, "Node.Find_successor", &id, tmp)
+
+	if err != nil {
+		return err
+	}
+
+	fingers[next] = tmp
+	return nil
+
 }
 
 func (n *Node) Check_predessesor(_ *Empty, _ *Empty) error {
@@ -201,7 +239,7 @@ func toBigInt(key string) *big.Int {
 
 func jump(startID string, finger int) string {
 	start := toBigInt(startID)
-	jump := new(big.Int).Exp(big.NewInt(2), big.NewInt(int64(finger)-1), nil)
+	jump := new(big.Int).Exp(big.NewInt(2), big.NewInt(int64(finger)), nil)
 	dest := start.Add(start, jump)
 
 	return new(big.Int).Mod(dest, maxNodes).Text(16)
@@ -211,17 +249,13 @@ func jump(startID string, finger int) string {
 // if inclusive = true:  returns true if a < x <= b otherwise false
 func between(xs string, as string, bs string, inclusive bool) bool {
 
-	x := toBigInt(xs)
-	a := toBigInt(as)
-	b := toBigInt(bs)
+	elt := toBigInt(xs)
+	start := toBigInt(as)
+	end := toBigInt(bs)
 
-	if a.Cmp(x) == -1 && x.Cmp(b) == -1 {
-		return true
+	if end.Cmp(start) > 0 {
+		return (start.Cmp(elt) < 0 && elt.Cmp(end) < 0) || (inclusive && elt.Cmp(end) == 0)
+	} else {
+		return start.Cmp(elt) < 0 || elt.Cmp(end) < 0 || (inclusive && elt.Cmp(end) == 0)
 	}
-
-	if inclusive && x.Cmp(b) == 0 {
-		return true
-	}
-
-	return false
 }
