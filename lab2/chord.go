@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"fmt"
 	"lab2/argument"
 	"lab2/node"
@@ -10,11 +11,15 @@ import (
 	"net/http"
 	"net/rpc"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/docker/docker/api/types"
+	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/client"
+	"github.com/docker/go-connections/nat"
 )
 
 var me *node.Node
@@ -60,7 +65,7 @@ func main() {
 
 	go timer(arg.Tff, func() { me.Fix_fingers(&node.Empty{}, &node.Empty{}) })
 
-	startServer()
+	//CreateNewContainer("http_server")
 
 	read_stdin()
 
@@ -102,23 +107,40 @@ func lookup(file string) {
 	reply.Print()
 }
 
-func startServer() { // todo do only if docker is not running
-	port := strconv.Itoa(me.Port)
-	cmd2 := exec.Command("docker", "images")
-	var out bytes.Buffer
-	cmd2.Stdout = &out
+func CreateNewContainer(image string) (string, error) {
+	port := "80" //strconv.Itoa(me.Port)
 
-	cmd2.Run()
+	cli, err := client.NewClientWithOpts(client.FromEnv)
+	if err != nil {
+		fmt.Println("Unable to create docker client")
+		panic(err)
+	}
 
-	fmt.Printf("translated phrase: %q\n", out.String())
+	hostBinding := nat.PortBinding{
+		HostIP:   "0.0.0.0",
+		HostPort: port,
+	}
+	containerPort, err := nat.NewPort("tcp", "80")
+	if err != nil {
+		panic("Unable to get the port")
+	}
 
-	fmt.Println(out)
+	portBinding := nat.PortMap{containerPort: []nat.PortBinding{hostBinding}}
+	cont, err := cli.ContainerCreate(
+		context.Background(),
+		&container.Config{
+			Image: image,
+		},
+		&container.HostConfig{
+			PortBindings: portBinding,
+		}, nil, nil, "")
+	if err != nil {
+		panic(err)
+	}
 
-	cmd := exec.Command("docker", "run", "--publish "+port+":80", "http_server") // todo not on the cloud
-
-	err := cmd.Start()
-
-	fmt.Println("server:", err)
+	cli.ContainerStart(context.Background(), cont.ID, types.ContainerStartOptions{})
+	fmt.Printf("Container %s is started", cont.ID)
+	return cont.ID, nil
 }
 
 func storeFile(file string) {
@@ -134,11 +156,12 @@ func storeFile(file string) {
 		content := http.DetectContentType(body)
 
 		reader := bytes.NewReader(body)
-		//http.Post("http://"+reply.Ip+":"+strconv.Itoa(reply.Port)+"/"+fileName, content, reader)
 
-		response, err2 := http.Post("http://"+reply.Ip+":80"+"/"+fileName, content, reader)
+		//response, _ := http.Post("http://"+reply.Ip+":"+strconv.Itoa(reply.Port)+"/"+fileName, content, reader)
+		response, _ := http.Post("http://"+reply.Ip+":80"+"/"+fileName, content, reader)
 
-		fmt.Println(response, err2)
+		fmt.Println(response)
+
 	} else {
 		fmt.Println("error reading file: ", err)
 	}
