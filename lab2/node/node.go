@@ -14,18 +14,56 @@ type Node struct {
 	Port int
 
 	Id string
+
+	FileMap map[string]string // Map a key to a file name
+
+	R int
 }
 
 type Empty struct {
 }
 
-const m = 3 // Maybe need to change
+const m = 1 // Maybe need to change
 var maxNodes = new(big.Int).Exp(big.NewInt(2), big.NewInt(m), nil)
 
 var predecessor *Node = &Node{}
 
 var next int = 0
 var fingers [m]*Node
+
+var successors []*Node
+
+//var fileMap map[string]string // Map a key to a file name
+
+func (n *Node) init() {
+
+	n.FileMap = make(map[string]string)
+
+	successors = make([]*Node, n.R)
+}
+
+func (n *Node) StoreFile(key string, file string) {
+	n.Print()
+	fmt.Println("key: ", key)
+	fmt.Println("file: ", file)
+	fmt.Println("store: ", n.FileMap)
+
+	n.FileMap[key] = file
+}
+
+func (n *Node) TakesKeys() (*Node, []string) {
+	s := fingers[0]
+	var files []string
+
+	for key, file := range s.FileMap {
+		if between(n.Id, key, s.Id, false) {
+			n.FileMap[key] = file
+			delete(s.FileMap, key)
+			files = append(files, key)
+		}
+	}
+	return s, files
+}
 
 func (n *Node) Print() {
 	fmt.Println("	ip: ", n.Ip)
@@ -66,12 +104,15 @@ func (n *Node) Create(_ *Empty, _ *Empty) error {
 
 	fingers[0] = n
 
+	n.init()
+
 	return nil
 }
 
 func (n *Node) Join(np *Node, _ *Empty) error {
 
 	predecessor = nil
+	n.init()
 
 	fingers[0] = &Node{Ip: "start"}
 	return Call(np, "Node.Find_successor", &n.Id, fingers[0])
@@ -92,7 +133,7 @@ func (n *Node) Find_successor(id *string, nr *Node) error {
 			return err
 		}
 
-		if *n0 == *n {
+		if n0.Id == n.Id {
 			*nr = *n
 			return nil
 		}
@@ -122,27 +163,45 @@ func (n *Node) Closest_preceding_node(id *string, nr *Node) error {
 	return nil
 }
 
-func (n *Node) GetPredecessor(_ *Empty, nr *Node) error {
+type data struct {
+	Pred *Node
+	Succ []*Node
+}
+
+func (n *Node) GetSuccessorData(_ *Empty, nd *data) error {
 
 	if predecessor != nil {
-		*nr = *predecessor
+		*nd.Pred = *predecessor
 	}
+
+	nd.Succ = successors
 
 	return nil
 }
 
+func (n *Node) replaceSuccessors(Succ []*Node) { ///????
+
+	tempList := []*Node{fingers[0]}
+	tempList = append(tempList, successors...)
+	successors = tempList[:n.R]
+}
+
 func (n *Node) Stabilze(_ *Empty, _ *Empty) error {
 
-	x := &Node{}
+	xd := data{Pred: &Node{}, Succ: []*Node{}}
 
-	err := Call(fingers[0], "Node.GetPredecessor", &Empty{}, x)
+	err := Call(fingers[0], "Node.GetSuccessorData", &Empty{}, &xd)
 
 	if err != nil {
-		fmt.Println("error in stab:", err)
+		fmt.Println("error in stab, deleting node:", err)
+		fingers[0] = n
 		return err
 	}
 
-	if (*x != Node{}) {
+	n.replaceSuccessors(xd.Succ)
+	x := xd.Pred
+
+	if (x.Id != Node{}.Id) {
 
 		if between(x.Id, n.Id, fingers[0].Id, false) {
 			fingers[0] = x

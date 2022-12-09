@@ -55,6 +55,10 @@ func main() {
 
 		fmt.Println("join err:", err)
 
+		from, files := me.TakesKeys()
+
+		moveFiles(from, me, files)
+
 	} else {
 		panic("invalid arguments")
 	}
@@ -88,6 +92,7 @@ func read_stdin() {
 			storeFile(arg)
 		default:
 			fmt.Println("Not a valid command")
+			me.PrintState()
 		}
 
 		//fmt.Println(runtime.NumGoroutine())
@@ -147,6 +152,7 @@ func storeFile(file string) {
 	key := node.Hash(file)
 	reply := &node.Node{}
 	me.Find_successor(&key, reply)
+
 	fileName := filepath.Base(file)
 
 	body, err := os.ReadFile(file)
@@ -157,8 +163,11 @@ func storeFile(file string) {
 
 		reader := bytes.NewReader(body)
 
+		fmt.Println("id is: ", reply.Id)
 		//response, _ := http.Post("http://"+reply.Ip+":"+strconv.Itoa(reply.Port)+"/"+fileName, content, reader)
 		response, _ := http.Post("http://"+reply.Ip+":80"+"/"+fileName, content, reader)
+
+		reply.StoreFile(key, file)
 
 		fmt.Println(response)
 
@@ -205,4 +214,24 @@ func RPC_server(n *node.Node) {
 		fmt.Println("error in RPC_server: ", err)
 	}
 	go http.Serve(l, nil)
+}
+
+func moveFiles(from *node.Node, to *node.Node, files []string) {
+
+	fmt.Println("moveFiles: ", files)
+	fmt.Println("from: ", from)
+	fmt.Println("to: ", to)
+	for _, file := range files {
+		response, err := http.Get("http://" + from.Ip + ":" + strconv.Itoa(from.Port) + "/" + file)
+		if err != nil {
+			fmt.Println("error in moveFiles (Get): ", err)
+		}
+		//http.Delete("http://" + from.Ip + ":" + strconv.Itoa(from.Port) + "/" + file)
+		_, err = http.Post("http://"+to.Ip+":"+strconv.Itoa(to.Port)+"/"+file, response.Header.Get("Content-Type"), response.Body)
+
+		if err != nil {
+			fmt.Println("error in moveFiles (Post): ", err)
+		}
+
+	}
 }
