@@ -23,6 +23,11 @@ type Node struct {
 type Empty struct {
 }
 
+type predAndSuccList struct {
+	Pred *Node
+	Succ []*Node
+}
+
 const m = 1 // Maybe need to change
 var maxNodes = new(big.Int).Exp(big.NewInt(2), big.NewInt(m), nil)
 
@@ -163,12 +168,7 @@ func (n *Node) Closest_preceding_node(id *string, nr *Node) error {
 	return nil
 }
 
-type data struct {
-	Pred *Node
-	Succ []*Node
-}
-
-func (n *Node) GetSuccessorData(_ *Empty, nd *data) error {
+func (n *Node) GetPredAndSuccessors(_ *Empty, nd *predAndSuccList) error {
 
 	if predecessor != nil {
 		*nd.Pred = *predecessor
@@ -188,12 +188,17 @@ func (n *Node) replaceSuccessors(Succ []*Node) { ///????
 
 func (n *Node) Stabilze(_ *Empty, _ *Empty) error {
 
-	xd := data{Pred: &Node{}, Succ: []*Node{}}
+	xd := predAndSuccList{Pred: &Node{}, Succ: []*Node{}}
 
-	err := Call(fingers[0], "Node.GetSuccessorData", &Empty{}, &xd)
+	err := Call(fingers[0], "Node.GetPredAndSuccessors", &Empty{}, &xd)
 
 	if err != nil {
 		fmt.Println("error in stab, deleting node:", err)
+
+		//Todo:
+		// Chop the first element off your successors list,
+		// and set your successor to the next element in the list.
+		// If there is no such element (the list is empty), set your successor to your own address.
 		fingers[0] = n
 		return err
 	}

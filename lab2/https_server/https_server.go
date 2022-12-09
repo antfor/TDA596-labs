@@ -155,6 +155,8 @@ func handleRequest(conn net.Conn, req *http.Request, rw http.ResponseWriter) {
 		handleGet(conn, req, rw)
 	case http.MethodPost: // POST
 		handlePost(conn, req, rw)
+	case http.MethodDelete: // DELETE
+		handleDelete(conn, req, rw)
 	default:
 		http.Error(rw, http.StatusText(http.StatusNotImplemented), http.StatusNotImplemented)
 	}
@@ -361,4 +363,31 @@ func serveEncryptedFile(rw http.ResponseWriter, req *http.Request, path string, 
 
 func decrypt(ciphertext []byte, key string) ([]byte, error) {
 	return ciphertext, nil
+}
+
+func handleDelete(conn net.Conn, req *http.Request, rw http.ResponseWriter) {
+
+	path := cleanURL(baseDir + req.URL.Path)
+
+	lockRW, found := mapFileTolock.Load(path)
+
+	if found {
+		(lockRW.(*sync.RWMutex)).Lock()
+
+		err := os.Remove(path)
+
+		if err != nil {
+			http.Error(rw, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+		} else {
+			rw.WriteHeader(http.StatusOK)
+		}
+
+		mapFileTolock.Delete(path) //copilot skrev hela functionen förutom denna raden
+
+		(lockRW.(*sync.RWMutex)).Unlock()
+
+	} else {
+		http.Error(rw, http.StatusText(http.StatusNotFound), http.StatusNotFound)
+	}
+
 }
