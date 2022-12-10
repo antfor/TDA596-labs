@@ -24,6 +24,8 @@ import (
 
 var me *node.Node
 
+const serverPort = "80"
+
 func main() {
 
 	arg, argType := argument.GetArg()
@@ -33,7 +35,7 @@ func main() {
 	id := node.Hash(arg.A + ":" + strconv.Itoa(arg.P))
 
 	if arg.I != "" {
-		id = node.Hash(arg.I)
+		id = node.Mod(arg.I)
 	}
 
 	me = &node.Node{Ip: arg.A, Port: arg.P, Id: id}
@@ -41,17 +43,19 @@ func main() {
 
 	if argType == argument.Create {
 
-		err := me.Create(&node.Empty{}, &node.Empty{})
+		err := me.Create(&arg.R, &node.Empty{})
 
 		fmt.Println("create err:", err)
 
 	} else if argType == argument.Join {
 
-		id := node.Hash(arg.Ja + ":" + strconv.Itoa(arg.Jp)) // todo call getId
+		Jnode := &node.Node{}
+		err := node.GetNode(arg.Ja, arg.Jp, Jnode)
+		if err != nil {
+			panic(err)
+		}
 
-		Jnode := &node.Node{Ip: arg.Ja, Port: arg.Jp, Id: id}
-
-		err := me.Join(Jnode, &node.Empty{})
+		err = me.Join(Jnode, &node.Empty{})
 
 		fmt.Println("join err:", err)
 
@@ -165,7 +169,7 @@ func storeFile(file string) {
 
 		fmt.Println("id is: ", reply.Id)
 		//response, _ := http.Post("http://"+reply.Ip+":"+strconv.Itoa(reply.Port)+"/"+fileName, content, reader)
-		response, _ := http.Post("http://"+reply.Ip+":80"+"/"+fileName, content, reader)
+		response, _ := http.Post("http://"+reply.Ip+":"+serverPort+"/"+fileName, content, reader)
 
 		reply.StoreFile(key, file)
 
@@ -222,16 +226,39 @@ func moveFiles(from *node.Node, to *node.Node, files []string) {
 	fmt.Println("from: ", from)
 	fmt.Println("to: ", to)
 	for _, file := range files {
-		response, err := http.Get("http://" + from.Ip + ":" + strconv.Itoa(from.Port) + "/" + file)
+
+		fmt.Println("file: ", file)
+
+		fromUrl := "http://" + from.Ip + ":" + serverPort + "/" + file // todo: change from serverPort
+
+		response, err := http.Get(fromUrl)
+
 		if err != nil {
 			fmt.Println("error in moveFiles (Get): ", err)
 		}
-		//http.Delete("http://" + from.Ip + ":" + strconv.Itoa(from.Port) + "/" + file)
-		_, err = http.Post("http://"+to.Ip+":"+strconv.Itoa(to.Port)+"/"+file, response.Header.Get("Content-Type"), response.Body)
+
+		httpDelete(fromUrl)
+
+		_, err = http.Post("http://"+to.Ip+":"+serverPort+"/"+file, response.Header.Get("Content-Type"), response.Body) // todo: change from serverPort
 
 		if err != nil {
 			fmt.Println("error in moveFiles (Post): ", err)
 		}
 
 	}
+}
+
+func httpDelete(url string) error {
+	req, err := http.NewRequest("DELETE", url, nil)
+	if err != nil {
+		return err
+
+	}
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	return nil
 }

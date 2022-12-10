@@ -367,6 +367,8 @@ func decrypt(ciphertext []byte, key string) ([]byte, error) {
 
 func handleDelete(conn net.Conn, req *http.Request, rw http.ResponseWriter) {
 
+	fmt.Println("handleDelete")
+
 	path := cleanURL(baseDir + req.URL.Path)
 
 	lockRW, found := mapFileTolock.Load(path)

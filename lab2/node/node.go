@@ -23,12 +23,12 @@ type Node struct {
 type Empty struct {
 }
 
-type predAndSuccList struct {
-	Pred *Node
+type PredAndSuccList struct {
+	Pred Node
 	Succ []*Node
 }
 
-const m = 1 // Maybe need to change
+const m = 2 // Maybe need to change
 var maxNodes = new(big.Int).Exp(big.NewInt(2), big.NewInt(m), nil)
 
 var predecessor *Node = &Node{}
@@ -40,11 +40,15 @@ var successors []*Node
 
 //var fileMap map[string]string // Map a key to a file name
 
-func (n *Node) init() {
+func (n *Node) init(r int) {
 
 	n.FileMap = make(map[string]string)
 
-	successors = make([]*Node, n.R)
+	n.R = r
+
+	successors = make([]*Node, 0)
+
+	//todo: init finger table and successor list
 }
 
 func (n *Node) StoreFile(key string, file string) {
@@ -64,7 +68,7 @@ func (n *Node) TakesKeys() (*Node, []string) {
 		if between(n.Id, key, s.Id, false) {
 			n.FileMap[key] = file
 			delete(s.FileMap, key)
-			files = append(files, key)
+			files = append(files, file)
 		}
 	}
 	return s, files
@@ -102,14 +106,23 @@ func (n *Node) PrintState() {
 		}
 	}
 
+	fmt.Println("Successors: ", successors)
+	fmt.Print("    ")
+	for _, s := range successors {
+		fmt.Print(s.Id, " , ")
+	}
+	fmt.Println()
+
 }
 
-func (n *Node) Create(_ *Empty, _ *Empty) error {
+func (n *Node) Create(r *int, _ *Empty) error {
 	predecessor = nil
 
-	fingers[0] = n
+	//fingers[0] = n
 
-	n.init()
+	n.init(*r)
+
+	setSuccessor(n)
 
 	return nil
 }
@@ -117,10 +130,18 @@ func (n *Node) Create(_ *Empty, _ *Empty) error {
 func (n *Node) Join(np *Node, _ *Empty) error {
 
 	predecessor = nil
-	n.init()
+	n.init(np.R)
 
-	fingers[0] = &Node{Ip: "start"}
-	return Call(np, "Node.Find_successor", &n.Id, fingers[0])
+	reply := &Node{Ip: "start"}
+	err := Call(np, "Node.Find_successor", &n.Id, reply)
+
+	if err != nil {
+		return err
+	}
+
+	setSuccessor(n)
+	setSuccessor(reply)
+	return nil
 }
 
 func (n *Node) Find_successor(id *string, nr *Node) error {
@@ -168,10 +189,10 @@ func (n *Node) Closest_preceding_node(id *string, nr *Node) error {
 	return nil
 }
 
-func (n *Node) GetPredAndSuccessors(_ *Empty, nd *predAndSuccList) error {
+func (n *Node) GetPredAndSuccessors(_ *Empty, nd *PredAndSuccList) error {
 
 	if predecessor != nil {
-		*nd.Pred = *predecessor
+		nd.Pred = *predecessor
 	}
 
 	nd.Succ = successors
@@ -179,41 +200,70 @@ func (n *Node) GetPredAndSuccessors(_ *Empty, nd *predAndSuccList) error {
 	return nil
 }
 
-func (n *Node) replaceSuccessors(Succ []*Node) { ///????
+func (n *Node) replaceSuccessors(Succ []*Node) {
 
 	tempList := []*Node{fingers[0]}
-	tempList = append(tempList, successors...)
-	successors = tempList[:n.R]
+	tempList = append(tempList, Succ...)
+
+	if !(len(tempList) < n.R) {
+		successors = tempList[:n.R]
+	} else {
+		successors = tempList
+	}
+
 }
 
 func (n *Node) Stabilze(_ *Empty, _ *Empty) error {
 
-	xd := predAndSuccList{Pred: &Node{}, Succ: []*Node{}}
+	xd := PredAndSuccList{Pred: Node{}, Succ: []*Node{}}
 
 	err := Call(fingers[0], "Node.GetPredAndSuccessors", &Empty{}, &xd)
 
 	if err != nil {
 		fmt.Println("error in stab, deleting node:", err)
 
-		//Todo:
-		// Chop the first element off your successors list,
-		// and set your successor to the next element in the list.
-		// If there is no such element (the list is empty), set your successor to your own address.
-		fingers[0] = n
+		newSuccessor(n)
+		err = n.Stabilze(&Empty{}, &Empty{})
+
 		return err
 	}
 
 	n.replaceSuccessors(xd.Succ)
-	x := xd.Pred
+	x := &xd.Pred
 
 	if (x.Id != Node{}.Id) {
 
 		if between(x.Id, n.Id, fingers[0].Id, false) {
-			fingers[0] = x
+			setSuccessor(x)
 		}
 	}
 
 	return Call(fingers[0], "Node.Notify", n, &Empty{})
+}
+
+// Chop the first element off your successors list,
+// and set your successor to the next element in the list.
+// If there is no such element (the list is empty), set your successor to your own address.
+func newSuccessor(me *Node) {
+
+	if len(successors) > 1 {
+		successors = successors[1:]
+		fingers[0] = successors[0]
+	} else if len(successors) == 1 {
+		successors = successors[1:]
+		setSuccessor(me)
+	} else {
+		setSuccessor(me)
+	}
+
+}
+
+func setSuccessor(s *Node) {
+
+	successors = append([]*Node{s}, successors...)
+	fmt.Println("setting successor to ", successors)
+	fingers[0] = s
+
 }
 
 func (n *Node) Notify(np *Node, _ *Empty) error {
@@ -271,6 +321,19 @@ func (n *Node) Ping(_ *Empty, reply *string) error {
 	return nil
 }
 
+func (n *Node) GetMe(_ *Empty, node *Node) error {
+
+	*node = *n
+	return nil
+}
+
+func GetNode(ip string, port int, node *Node) error {
+
+	err := Call(&Node{Ip: ip, Port: port}, "Node.GetMe", &Empty{}, node)
+
+	return err
+}
+
 func Call[A any, R any](n *Node, f string, arg *A, reply *R) error {
 
 	client, err := rpc.DialHTTP("tcp", n.Ip+":"+strconv.Itoa(n.Port))
@@ -292,6 +355,14 @@ func Hash(elt string) string {
 	key := new(big.Int).Mod(hashValue, maxNodes)
 
 	return key.Text(16)
+}
+
+func Mod(id string) string {
+	keyID := new(big.Int)
+	keyID.SetString(id, 16)
+	keyID.Mod(keyID, maxNodes)
+
+	return keyID.Text(16)
 }
 
 func toBigInt(key string) *big.Int {

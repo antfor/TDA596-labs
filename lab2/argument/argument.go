@@ -97,7 +97,7 @@ func isSpecified(arg Argument) {
 func validId(id string) {
 
 	if id != "" {
-		match, err := regexp.MatchString("([0-9]|[a-f]|[A-F]){40}", id)
+		match, err := regexp.MatchString("([0-9]|[a-f]|[A-F]){1,40}", id)
 
 		if err != nil || !match {
 			panic("Invalid identifier")
