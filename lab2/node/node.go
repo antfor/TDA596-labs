@@ -40,11 +40,9 @@ var successors []*Node
 
 //var fileMap map[string]string // Map a key to a file name
 
-func (n *Node) init(r int) {
+func (n *Node) init() {
 
 	n.FileMap = make(map[string]string)
-
-	n.R = r
 
 	successors = make([]*Node, 0)
 
@@ -120,7 +118,7 @@ func (n *Node) Create(r *int, _ *Empty) error {
 
 	//fingers[0] = n
 
-	n.init(*r)
+	n.init()
 
 	setSuccessor(n)
 
@@ -130,7 +128,7 @@ func (n *Node) Create(r *int, _ *Empty) error {
 func (n *Node) Join(np *Node, _ *Empty) error {
 
 	predecessor = nil
-	n.init(np.R)
+	n.init()
 
 	reply := &Node{Ip: "start"}
 	err := Call(np, "Node.Find_successor", &n.Id, reply)

@@ -38,7 +38,7 @@ func main() {
 		id = node.Mod(arg.I)
 	}
 
-	me = &node.Node{Ip: arg.A, Port: arg.P, Id: id}
+	me = &node.Node{Ip: arg.A, Port: arg.P, Id: id, R: arg.R}
 	RPC_server(me)
 
 	if argType == argument.Create {
