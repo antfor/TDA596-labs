@@ -3,9 +3,14 @@ package main
 import (
 	"bufio"
 	"context"
+	"crypto/aes"
+	"crypto/cipher"
+	"crypto/sha1"
+	"crypto/tls"
 	"fmt"
 	"io"
 	"io/fs"
+	"math/big"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -77,7 +82,16 @@ Otherwise throw a panic
 */
 func listen(port int) {
 
-	l, err := net.Listen("tcp", ":"+strconv.Itoa(port))
+	//	l, err := net.Listen("tcp", ":"+strconv.Itoa(port))
+
+	cer, err := tls.LoadX509KeyPair("server.crt", "server.key")
+	if err != nil {
+		fmt.Println("err:", err)
+		panic("Could not load key pair")
+	}
+
+	config := &tls.Config{Certificates: []tls.Certificate{cer}}
+	l, err := tls.Listen("tcp", ":"+strconv.Itoa(port), config)
 
 	if err != nil {
 		panic("Could not listen to port")
@@ -361,8 +375,31 @@ func serveEncryptedFile(rw http.ResponseWriter, req *http.Request, path string, 
 
 }
 
-func decrypt(ciphertext []byte, key string) ([]byte, error) {
-	return ciphertext, nil
+var rand_bytes = []byte{35, 46, 57, 24, 85, 35, 24, 74, 87, 35, 88, 98, 66, 32, 14, 05}
+
+// From https://blog.logrocket.com/learn-golang-encryption-decryption/
+func decrypt(ciphertext []byte, pswd string) ([]byte, error) {
+
+	key := genKey(pswd)
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return ciphertext, err
+	}
+
+	cfb := cipher.NewCFBDecrypter(block, rand_bytes)
+	plainText := make([]byte, len(ciphertext))
+	cfb.XORKeyStream(plainText, ciphertext)
+	return plainText, nil
+}
+
+func genKey(pswd string) []byte {
+
+	hasher := sha1.New()
+	hasher.Write([]byte(pswd))
+
+	hashValue := new(big.Int).SetBytes(hasher.Sum(nil))
+
+	return hashValue.Bytes()[:16]
 }
 
 func handleDelete(conn net.Conn, req *http.Request, rw http.ResponseWriter) {

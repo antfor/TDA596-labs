@@ -42,9 +42,16 @@ func (n *Node) init() {
 
 	n.FileMap = make(map[string]string)
 
-	successors = make([]*Node, 0)
+	successors = make([]*Node, n.R)
 
-	//todo: init finger table and successor list
+	for i := 0; i < n.R; i++ {
+		successors[i] = n
+	}
+
+	for i := 0; i < m; i++ {
+		fingers[i] = n
+	}
+
 }
 
 func (n *Node) Create(r *int, _ *Empty) error {
@@ -68,7 +75,6 @@ func (n *Node) Join(np *Node, _ *Empty) error {
 		return err
 	}
 
-	setSuccessor(n) //Todo: get the successor from the reply instead?
 	setSuccessor(reply)
 	return nil
 }
@@ -116,22 +122,6 @@ func (n *Node) Closest_preceding_node(id *string, nr *Node) error {
 
 	*nr = *n
 	return nil
-}
-
-// Replace your successor with the new successor
-// But keep set your successor first
-// Shorten it to R, if needed
-func (n *Node) replaceSuccessors(Succ []*Node) {
-
-	tempList := []*Node{fingers[0]}
-	tempList = append(tempList, Succ...)
-
-	if !(len(tempList) < n.R) {
-		successors = tempList[:n.R]
-	} else {
-		successors = tempList
-	}
-
 }
 
 // Notify the node that it thinks it is your predecessor
@@ -224,6 +214,22 @@ func (n *Node) Stabilze(_ *Empty, _ *Empty) error {
 }
 
 // Helper functions /////////////////////////////////////////////////
+
+// Replace your successor with the new successor
+// But keep set your successor first
+// Shorten it to R, if needed
+func (n *Node) replaceSuccessors(Succ []*Node) {
+
+	tempList := []*Node{fingers[0]}
+	tempList = append(tempList, Succ...)
+
+	if !(len(tempList) < n.R) {
+		successors = tempList[:n.R] // todo r-1???
+	} else {
+		successors = tempList
+	}
+
+}
 
 // Chop the first element off your successors list,
 // and set your successor to the next element in the list.
