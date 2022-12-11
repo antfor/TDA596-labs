@@ -3,7 +3,6 @@ package main
 import (
 	"bufio"
 	"bytes"
-	"context"
 	"fmt"
 	"lab2/argument"
 	"lab2/node"
@@ -15,11 +14,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	"github.com/docker/docker/api/types"
-	"github.com/docker/docker/api/types/container"
-	"github.com/docker/docker/client"
-	"github.com/docker/go-connections/nat"
 )
 
 var me *node.Node
@@ -32,38 +26,15 @@ func main() {
 
 	fmt.Println("args:", arg, "type: ", argType)
 
-	id := node.Hash(arg.A + ":" + strconv.Itoa(arg.P))
-
-	if arg.I != "" {
-		id = node.Mod(arg.I)
-	}
-
-	me = &node.Node{Ip: arg.A, Port: arg.P, Id: id, R: arg.R}
+	me = createNode(arg)
 	RPC_server(me)
 
-	if argType == argument.Create {
-
-		err := me.Create(&arg.R, &node.Empty{})
-
-		fmt.Println("create err:", err)
-
-	} else if argType == argument.Join {
-
-		Jnode := &node.Node{}
-		err := node.GetNode(arg.Ja, arg.Jp, Jnode)
-		if err != nil {
-			panic(err)
-		}
-
-		err = me.Join(Jnode, &node.Empty{})
-
-		fmt.Println("join err:", err)
-
-		from, files := me.TakesKeys()
-
-		moveFiles(from, me, files)
-
-	} else {
+	switch argType {
+	case argument.Create:
+		create(arg)
+	case argument.Join:
+		join(arg)
+	case argument.NotValid:
 		panic("invalid arguments")
 	}
 
@@ -73,10 +44,35 @@ func main() {
 
 	go timer(arg.Tff, func() { me.Fix_fingers(&node.Empty{}, &node.Empty{}) })
 
-	//CreateNewContainer("http_server")
-
 	read_stdin()
 
+}
+
+func create(arg argument.Argument) {
+	err := me.Create(&arg.R, &node.Empty{})
+
+	if err != nil {
+		fmt.Println("create err:", err)
+	}
+
+}
+
+func join(arg argument.Argument) {
+	Jnode := &node.Node{}
+	err := node.GetNode(arg.Ja, arg.Jp, Jnode)
+	if err != nil {
+		panic(err)
+	}
+
+	err = me.Join(Jnode, &node.Empty{})
+
+	if err != nil {
+		fmt.Println("join err:", err)
+	}
+
+	from, files := me.TakesKeys()
+
+	moveFiles(from, me, files)
 }
 
 func read_stdin() {
@@ -99,8 +95,6 @@ func read_stdin() {
 			me.PrintState()
 		}
 
-		//fmt.Println(runtime.NumGoroutine())
-		//me.PrintState()
 	}
 }
 
@@ -114,42 +108,6 @@ func lookup(file string) {
 
 	fmt.Println("File is at node: ")
 	reply.Print()
-}
-
-func CreateNewContainer(image string) (string, error) {
-	port := "80" //strconv.Itoa(me.Port)
-
-	cli, err := client.NewClientWithOpts(client.FromEnv)
-	if err != nil {
-		fmt.Println("Unable to create docker client")
-		panic(err)
-	}
-
-	hostBinding := nat.PortBinding{
-		HostIP:   "0.0.0.0",
-		HostPort: port,
-	}
-	containerPort, err := nat.NewPort("tcp", "80")
-	if err != nil {
-		panic("Unable to get the port")
-	}
-
-	portBinding := nat.PortMap{containerPort: []nat.PortBinding{hostBinding}}
-	cont, err := cli.ContainerCreate(
-		context.Background(),
-		&container.Config{
-			Image: image,
-		},
-		&container.HostConfig{
-			PortBindings: portBinding,
-		}, nil, nil, "")
-	if err != nil {
-		panic(err)
-	}
-
-	cli.ContainerStart(context.Background(), cont.ID, types.ContainerStartOptions{})
-	fmt.Printf("Container %s is started", cont.ID)
-	return cont.ID, nil
 }
 
 func storeFile(file string) {
@@ -231,14 +189,17 @@ func moveFiles(from *node.Node, to *node.Node, files []string) {
 
 		fromUrl := "http://" + from.Ip + ":" + serverPort + "/" + file // todo: change from serverPort
 
+		//Get
 		response, err := http.Get(fromUrl)
 
 		if err != nil {
 			fmt.Println("error in moveFiles (Get): ", err)
 		}
 
+		//Delete
 		httpDelete(fromUrl)
 
+		//Post
 		_, err = http.Post("http://"+to.Ip+":"+serverPort+"/"+file, response.Header.Get("Content-Type"), response.Body) // todo: change from serverPort
 
 		if err != nil {
@@ -261,4 +222,16 @@ func httpDelete(url string) error {
 	}
 	defer resp.Body.Close()
 	return nil
+}
+
+func createNode(arg argument.Argument) *node.Node {
+
+	id := node.Hash(arg.A + ":" + strconv.Itoa(arg.P))
+
+	if arg.I != "" {
+		id = node.Mod(arg.I)
+	}
+
+	return &node.Node{Ip: arg.A, Port: arg.P, Id: id, R: arg.R}
+
 }

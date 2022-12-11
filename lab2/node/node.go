@@ -38,8 +38,6 @@ var fingers [m]*Node
 
 var successors []*Node
 
-//var fileMap map[string]string // Map a key to a file name
-
 func (n *Node) init() {
 
 	n.FileMap = make(map[string]string)
@@ -49,86 +47,19 @@ func (n *Node) init() {
 	//todo: init finger table and successor list
 }
 
-func (n *Node) StoreFile(key string, file string) {
-	n.Print()
-	fmt.Println("key: ", key)
-	fmt.Println("file: ", file)
-	fmt.Println("store: ", n.FileMap)
-
-	n.FileMap[key] = file
-}
-
-func (n *Node) TakesKeys() (*Node, []string) {
-	s := fingers[0]
-	var files []string
-
-	for key, file := range s.FileMap {
-		if between(n.Id, key, s.Id, false) {
-			n.FileMap[key] = file
-			delete(s.FileMap, key)
-			files = append(files, file)
-		}
-	}
-	return s, files
-}
-
-func (n *Node) Print() {
-	fmt.Println("	ip: ", n.Ip)
-	fmt.Println("	port: ", n.Port)
-
-	value, _ := strconv.ParseInt(n.Id, 16, 64)
-	fmt.Println("	id (base 10)", value)
-}
-
-func (n *Node) PrintState() {
-	fmt.Println("me: ")
-	n.Print()
-	if predecessor != nil {
-		fmt.Println("predecessor: ")
-		predecessor.Print()
-	} else {
-		fmt.Println("predecessor is nil ")
-	}
-
-	fmt.Println("successor: ")
-
-	fingers[0].Print()
-	fmt.Println("finger table: ")
-
-	for i := 0; i < m; i++ {
-		if fingers[i] != nil {
-			fmt.Println("finger", i, ":")
-			fingers[i].Print()
-		} else {
-			fmt.Println("finger ", i, " is nil")
-		}
-	}
-
-	fmt.Println("Successors: ", successors)
-	fmt.Print("    ")
-	for _, s := range successors {
-		fmt.Print(s.Id, " , ")
-	}
-	fmt.Println()
-
-}
-
 func (n *Node) Create(r *int, _ *Empty) error {
-	predecessor = nil
-
-	//fingers[0] = n
-
 	n.init()
 
+	predecessor = nil
 	setSuccessor(n)
 
 	return nil
 }
 
 func (n *Node) Join(np *Node, _ *Empty) error {
+	n.init()
 
 	predecessor = nil
-	n.init()
 
 	reply := &Node{Ip: "start"}
 	err := Call(np, "Node.Find_successor", &n.Id, reply)
@@ -137,7 +68,7 @@ func (n *Node) Join(np *Node, _ *Empty) error {
 		return err
 	}
 
-	setSuccessor(n)
+	setSuccessor(n) //Todo: get the successor from the reply instead?
 	setSuccessor(reply)
 	return nil
 }
@@ -187,17 +118,9 @@ func (n *Node) Closest_preceding_node(id *string, nr *Node) error {
 	return nil
 }
 
-func (n *Node) GetPredAndSuccessors(_ *Empty, nd *PredAndSuccList) error {
-
-	if predecessor != nil {
-		nd.Pred = *predecessor
-	}
-
-	nd.Succ = successors
-
-	return nil
-}
-
+// Replace your successor with the new successor
+// But keep set your successor first
+// Shorten it to R, if needed
 func (n *Node) replaceSuccessors(Succ []*Node) {
 
 	tempList := []*Node{fingers[0]}
@@ -209,6 +132,67 @@ func (n *Node) replaceSuccessors(Succ []*Node) {
 		successors = tempList
 	}
 
+}
+
+// Notify the node that it thinks it is your predecessor
+func (n *Node) Notify(np *Node, _ *Empty) error {
+
+	if predecessor == nil {
+		predecessor = np
+		return nil
+	}
+
+	if between(np.Id, predecessor.Id, n.Id, false) {
+		predecessor = np
+	}
+	return nil
+}
+
+// Fixes the finger table entries
+func (n *Node) Fix_fingers(_ *Empty, _ *Empty) error {
+
+	next = next + 1
+	if next > m-1 {
+		next = 0
+	}
+
+	id := jump(n.Id, next)
+
+	tmp := &Node{}
+	err := Call(n, "Node.Find_successor", &id, tmp)
+
+	if err != nil {
+		return err
+	}
+
+	fingers[next] = tmp
+	return nil
+
+}
+
+// Checks if the predecessor is alive
+// If not, sets the predecessor to nil
+func (n *Node) Check_predessesor(_ *Empty, _ *Empty) error {
+
+	if predecessor != nil {
+		var reply string
+
+		err := Call(predecessor, "Node.Ping", &Empty{}, &reply)
+
+		if err != nil && reply != "pong" {
+			predecessor = nil
+			return err
+		}
+	}
+	return nil
+}
+
+// Returns "pong" if the node is running
+// Used to check if a node is alive
+func (n *Node) Ping(_ *Empty, reply *string) error {
+
+	*reply = "pong"
+	return nil
 }
 
 func (n *Node) Stabilze(_ *Empty, _ *Empty) error {
@@ -239,6 +223,8 @@ func (n *Node) Stabilze(_ *Empty, _ *Empty) error {
 	return Call(fingers[0], "Node.Notify", n, &Empty{})
 }
 
+// Helper functions /////////////////////////////////////////////////
+
 // Chop the first element off your successors list,
 // and set your successor to the next element in the list.
 // If there is no such element (the list is empty), set your successor to your own address.
@@ -256,75 +242,34 @@ func newSuccessor(me *Node) {
 
 }
 
+// Get the predecessor and successors of the node
+func (n *Node) GetPredAndSuccessors(_ *Empty, nd *PredAndSuccList) error {
+
+	if predecessor != nil {
+		nd.Pred = *predecessor
+	}
+
+	nd.Succ = successors
+
+	return nil
+}
+
+// Set the successor of the node
 func setSuccessor(s *Node) {
 
 	successors = append([]*Node{s}, successors...)
-	fmt.Println("setting successor to ", successors)
 	fingers[0] = s
 
 }
 
-func (n *Node) Notify(np *Node, _ *Empty) error {
-
-	if predecessor == nil {
-		predecessor = np
-		return nil
-	}
-
-	if between(np.Id, predecessor.Id, n.Id, false) {
-		predecessor = np
-	}
-	return nil
-}
-
-func (n *Node) Fix_fingers(_ *Empty, _ *Empty) error {
-
-	next = next + 1
-	if next > m-1 {
-		next = 0
-	}
-
-	id := jump(n.Id, next)
-
-	tmp := &Node{}
-	err := Call(n, "Node.Find_successor", &id, tmp)
-
-	if err != nil {
-		return err
-	}
-
-	fingers[next] = tmp
-	return nil
-
-}
-
-func (n *Node) Check_predessesor(_ *Empty, _ *Empty) error {
-
-	if predecessor != nil {
-		var reply string
-
-		err := Call(predecessor, "Node.Ping", &Empty{}, &reply)
-
-		if err != nil && reply != "pong" {
-			predecessor = nil
-			return err
-		}
-	}
-	return nil
-}
-
-func (n *Node) Ping(_ *Empty, reply *string) error {
-
-	*reply = "pong"
-	return nil
-}
-
+// Returns the node that is running this code
 func (n *Node) GetMe(_ *Empty, node *Node) error {
 
 	*node = *n
 	return nil
 }
 
+// Returns the node at the given ip and port
 func GetNode(ip string, port int, node *Node) error {
 
 	err := Call(&Node{Ip: ip, Port: port}, "Node.GetMe", &Empty{}, node)
@@ -332,6 +277,7 @@ func GetNode(ip string, port int, node *Node) error {
 	return err
 }
 
+// Does a RPC call to node n, with function f, with argument arg, and reply reply
 func Call[A any, R any](n *Node, f string, arg *A, reply *R) error {
 
 	client, err := rpc.DialHTTP("tcp", n.Ip+":"+strconv.Itoa(n.Port))
@@ -344,6 +290,7 @@ func Call[A any, R any](n *Node, f string, arg *A, reply *R) error {
 	return client.Call(f, arg, reply)
 }
 
+// Returns the hex value of a hash of a string, mod 2^m
 func Hash(elt string) string {
 	hasher := sha1.New()
 	hasher.Write([]byte(elt))
@@ -355,6 +302,7 @@ func Hash(elt string) string {
 	return key.Text(16)
 }
 
+// Mod(id) = id % 2^m
 func Mod(id string) string {
 	keyID := new(big.Int)
 	keyID.SetString(id, 16)
@@ -363,6 +311,7 @@ func Mod(id string) string {
 	return keyID.Text(16)
 }
 
+// Turns a string into a big int
 func toBigInt(key string) *big.Int {
 	keyID := new(big.Int)
 	keyID.SetString(key, 16)
@@ -370,6 +319,7 @@ func toBigInt(key string) *big.Int {
 	return keyID
 }
 
+// Jump(startID, finger) = (startID + 2^finger) % 2^m
 func jump(startID string, finger int) string {
 	start := toBigInt(startID)
 	jump := new(big.Int).Exp(big.NewInt(2), big.NewInt(int64(finger)), nil)
@@ -380,6 +330,8 @@ func jump(startID string, finger int) string {
 
 // if inclusive = false: returns true if a < x < b  otherwise false
 // if inclusive = true:  returns true if a < x <= b otherwise false
+// if inclusive = false and a > b: returns true if a < x or x < b  otherwise false
+// if inclusive = true  and a > b: returns true if a < x or x <= b otherwise false
 func between(xs string, as string, bs string, inclusive bool) bool {
 
 	elt := toBigInt(xs)
@@ -391,4 +343,72 @@ func between(xs string, as string, bs string, inclusive bool) bool {
 	} else {
 		return start.Cmp(elt) < 0 || elt.Cmp(end) < 0 || (inclusive && elt.Cmp(end) == 0)
 	}
+}
+
+// CMD /////////////////////////////////////////////
+
+func (n *Node) StoreFile(key string, file string) {
+	n.Print()
+	fmt.Println("key: ", key)
+	fmt.Println("file: ", file)
+	fmt.Println("store: ", n.FileMap)
+
+	n.FileMap[key] = file
+}
+
+func (n *Node) TakesKeys() (*Node, []string) {
+	s := fingers[0]
+	var files []string
+
+	for key, file := range s.FileMap {
+		if between(n.Id, key, s.Id, false) {
+			n.FileMap[key] = file
+			delete(s.FileMap, key)
+			files = append(files, file)
+		}
+	}
+	return s, files
+}
+
+// CMD PrintState
+func (n *Node) PrintState() {
+	fmt.Println("me: ")
+	n.Print()
+	if predecessor != nil {
+		fmt.Println("predecessor: ")
+		predecessor.Print()
+	} else {
+		fmt.Println("predecessor is nil ")
+	}
+
+	fmt.Println("successor: ")
+
+	fingers[0].Print()
+	fmt.Println("finger table: ")
+
+	for i := 0; i < m; i++ {
+		if fingers[i] != nil {
+			fmt.Println("finger", i, ":")
+			fingers[i].Print()
+		} else {
+			fmt.Println("finger ", i, " is nil")
+		}
+	}
+
+	fmt.Println("Successors: ", successors)
+	fmt.Print("    ")
+	for _, s := range successors {
+		fmt.Print(s.Id, " , ")
+	}
+	fmt.Println()
+
+}
+
+// Prints the node information
+func (n *Node) Print() {
+	fmt.Println("	ip: ", n.Ip)
+	fmt.Println("	port: ", n.Port)
+
+	value, _ := strconv.ParseInt(n.Id, 16, 64)
+	fmt.Println("	id (base 10)", value)
 }
