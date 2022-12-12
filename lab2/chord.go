@@ -76,10 +76,10 @@ func join(arg argument.Argument) {
 		fmt.Println("join err:", err)
 	}
 
-	del, files := me.TakeFiles()
+	from, files := me.TakeFiles() // del
 
-	moveFiles(me, del, files)
-	//transferFiles(from, me, files)
+	//moveFiles(me, del, files)
+	transferFiles(from, me, files)
 }
 
 func read_stdin() {

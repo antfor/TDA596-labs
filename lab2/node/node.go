@@ -208,6 +208,10 @@ func (n *Node) Stabilze(_ *Empty, _ *Empty) error {
 	if err != nil {
 		fmt.Println("error in stab, deleting node:", err)
 
+		if len(successors) > 1 {
+			removeAllBackups(n, successors[0], successors[1])
+		}
+
 		newSuccessor(n)
 		err = n.Stabilze(&Empty{}, &Empty{})
 
@@ -277,6 +281,13 @@ func (n *Node) GetPredAndSuccessors(_ *Empty, nd *PredAndSuccList) error {
 // Set the successor of the node
 func setSuccessor(s *Node) {
 
+	fmt.Println("fix in setSuccessor", s.Id)
+
+	//for _, fb := range FileMap {
+
+	//fixBackup(s, fb)
+	//}
+
 	successors = append([]*Node{s}, successors...)
 	fingers[0] = s
 
@@ -310,6 +321,7 @@ func Call[A any, R any](n *Node, f string, arg *A, reply *R) error {
 	return client.Call(f, arg, reply)
 }
 
+// todo remove
 func (n *Node) StoreFileAtNode(node *Node, filename File) error {
 	err := Call(node, "Node.StoreFile", &filename, &Empty{})
 	if err != nil {
@@ -390,7 +402,13 @@ func (n *Node) StoreFile(fileAndKey *File, _ *Empty) error {
 	fmt.Println("file: ", file)
 	fmt.Println("store: ", FileMap)
 
-	FileMap[key] = FileAndBackups{File: file, Key: key}
+	//todo backups
+
+	backup := make([]*Node, 1)
+	backup[0] = n
+	// todo add successors to backup
+
+	FileMap[key] = FileAndBackups{File: file, Key: key, Backup: backup}
 
 	//for i := 0; i < n.R; i++ {
 	//Call(successors[i], "Node.StoreFile", &File{key, file}, &Empty{})
@@ -398,23 +416,22 @@ func (n *Node) StoreFile(fileAndKey *File, _ *Empty) error {
 	return nil
 }
 
-func (n *Node) TakeFiles() ([]*Node, []string) {
+func (n *Node) TakeFiles() (*Node, []string) {
 
 	s := fingers[0]
 
 	fb := make([]FileAndBackups, 0)
 
-	Call(s, "Node.TakesKeys", &n.Id, &fb)
+	Call(s, "Node.TakeKeys", n, &fb)
 
-	toDelete := make([]*Node, 0)
 	files := make([]string, 0)
 
 	for _, file := range fb {
 		files = append(files, file.File)
-		toDelete = append(toDelete, fixBackup(n, file)...)
+		fixBackup(n, file)
 	}
 
-	return toDelete, files
+	return s, files
 }
 
 type NodeList []*Node
@@ -434,29 +451,76 @@ func (ns NodeList) Swap(i, j int) {
 	ns[i], ns[j] = ns[j], ns[i]
 }
 
-func fixBackup(me *Node, fb FileAndBackups) []*Node {
+func remove(s []*Node, e *Node) ([]*Node, bool) {
+	for i, a := range s {
+		if *a == *e {
+			return append(s[:i], s[i+1:]...), true
+		}
+	}
+	return s, false
+}
+
+func removeAllBackups(me *Node, succ *Node, succSucc *Node) {
+	err := me.RemoveBackups(succ, &Empty{})
+	if err != nil {
+		fmt.Println("error in removeAllBackups1: ", err)
+	}
+
+	err = Call(succSucc, "Node.RemoveBackups", succ, &Empty{})
+
+	if err != nil {
+		fmt.Println("error in removeAllBackups2: ", err)
+	}
+}
+
+func (n *Node) RemoveBackups(succ *Node, _ *Empty) error {
+
+	for _, fb := range FileMap {
+		var removed bool
+		fb.Backup, removed = remove(fb.Backup, succ)
+
+		if removed {
+			for _, node := range fb.Backup {
+				err := Call(node, "Node.NewBackup", &fb, &Empty{})
+				if err != nil {
+					fmt.Println("error in RemoveBackups: ", err)
+				}
+			}
+		}
+	}
+
+	return nil
+}
+
+func fixBackup(me *Node, fb FileAndBackups) {
+
+	fmt.Println("fixBackup: ")
 
 	backups := fb.Backup
 	key := fb.Key
 
 	backups = append(backups, me)
+	fmt.Println("backups: ", backups)
 
 	sort.Sort(NodeList(backups))
 
-	newBackups := backups[:me.R]
+	var toDelete []*Node
 
-	toDelete := backups[me.R-1:]
+	if len(backups) > me.R {
+		toDelete = backups[me.R-1:]
+		backups = backups[:me.R]
+	}
 
-	newFb := FileAndBackups{Key: key, File: fb.File, Backup: newBackups}
+	newFb := FileAndBackups{Key: key, File: fb.File, Backup: backups}
 
 	for _, node := range toDelete {
 		Call(node, "Node.DeleteKey", &key, &Empty{})
 	}
 
-	for _, node := range newBackups {
+	for _, node := range backups {
 		Call(node, "Node.NewBackup", &newFb, &Empty{})
 	}
-	return toDelete
+	//return toDelete
 }
 
 func (n *Node) DeleteKey(key *string, _ *Empty) error {
@@ -469,15 +533,17 @@ func (n *Node) NewBackup(newBackups *FileAndBackups, _ *Empty) error {
 	return nil
 }
 
-func (n *Node) TakesKeys(id *string, fb *[]FileAndBackups) error {
+// key < me < succ
+
+func (n *Node) TakeKeys(me *Node, fb *[]FileAndBackups) error {
 
 	for key, file := range FileMap {
-		if between(*id, key, n.Id, false) {
+		if between(me.Id, key, n.Id, false) {
 
-			fmt.Println("Delkey: ", key)
+			fixBackup(me, file)
+			//fmt.Println("Delkey: ", key)
 
-			//delete(FileMap, key)
-			*fb = append(*fb, file)
+			//*fb = append(*fb, file)
 		}
 	}
 
@@ -522,6 +588,13 @@ func (n *Node) PrintState() {
 	fmt.Println()
 
 	fmt.Println("Files: ", FileMap)
+
+	for key, file := range FileMap {
+		fmt.Println("	key: ", key, " file: ", file.File)
+		for _, b := range file.Backup {
+			fmt.Print("		backup: ", b.Id)
+		}
+	}
 }
 
 // Prints the node information
