@@ -76,9 +76,10 @@ func join(arg argument.Argument) {
 		fmt.Println("join err:", err)
 	}
 
-	from, files := me.TakesKeys()
+	del, files := me.TakeFiles()
 
-	moveFiles(from, me, files)
+	moveFiles(me, del, files)
+	//transferFiles(from, me, files)
 }
 
 func read_stdin() {
@@ -144,13 +145,14 @@ func storeFile(file string, option string) {
 		fmt.Println("id is: ", reply.Id)
 
 		//POST
-		//response, _ := http.Post("http://"+reply.Ip+":"+serverPort+"/"+fileName, content, reader)
 		err = httpsPost(reply.Ip+":"+serverPort, "https://"+reply.Ip+":"+serverPort+"/"+fileName, content, reader)
 
 		if err != nil {
 			fmt.Println("error posting file: ", err)
 		}
-		reply.StoreFile(key, file)
+		//reply.StoreFile(&node.File{Key: key, File: file}, &node.Empty{})
+		err := me.StoreFileAtNode(reply, node.File{Key: key, File: file})
+		fmt.Println("Call err: ", err)
 
 	} else {
 		fmt.Println("error reading file: ", err)
@@ -203,7 +205,20 @@ func RPC_server(n *node.Node) {
 	go http.Serve(l, nil)
 }
 
-func moveFiles(from *node.Node, to *node.Node, files []string) {
+func moveFiles(post *node.Node, dels []*node.Node, files []string) {
+
+	transferFiles(post, dels[0], files)
+
+	for _, file := range files {
+		for _, del := range dels {
+			url := del.Ip + ":" + serverPort
+			delUrl := "https://" + del.Ip + ":" + serverPort + "/" + file
+			httpsDelete(url, delUrl)
+		}
+	}
+}
+
+func transferFiles(from *node.Node, to *node.Node, files []string) {
 
 	fmt.Println("moveFiles: ", files)
 	fmt.Println("from: ", from)
@@ -215,23 +230,16 @@ func moveFiles(from *node.Node, to *node.Node, files []string) {
 		fromUrl := "https://" + from.Ip + ":" + serverPort + "/" + file // todo: change from serverPort
 
 		//Get
-		//	response, err := http.Get(fromUrl)
-		response, err := httpsGet(from.Ip+":"+serverPort, fromUrl)
+		response, body, err := httpsGet(from.Ip+":"+serverPort, fromUrl)
+
+		reader := io.NopCloser(bytes.NewReader(body))
 
 		if err != nil {
 			fmt.Println("error in moveFiles (Get): ", err)
 		}
 
-		//Delete
-		//httpDelete(fromUrl)
-		err = httpsDelete(from.Ip, fromUrl)
-		if err != nil {
-			fmt.Println("error in moveFiles (DELETE): ", err)
-		}
-
 		//Post
-		//_, err = http.Post("http://"+to.Ip+":"+serverPort+"/"+file, response.Header.Get("Content-Type"), response.Body) // todo: change from serverPort
-		err = httpsPost(to.Ip+":"+serverPort, "https://"+to.Ip+":"+serverPort+"/"+file, response.Header.Get("Content-Type"), response.Body)
+		err = httpsPost(to.Ip+":"+serverPort, "https://"+to.Ip+":"+serverPort+"/"+file, response.Header.Get("Content-Type"), reader)
 
 		if err != nil {
 			fmt.Println("error in moveFiles (Post): ", err)
@@ -240,28 +248,40 @@ func moveFiles(from *node.Node, to *node.Node, files []string) {
 	}
 }
 
-func httpsGet(ip string, url string) (*http.Response, error) {
+func httpsGet(ip string, url string) (*http.Response, []byte, error) {
 	conf := &tls.Config{
 		InsecureSkipVerify: true,
 	}
 	conn, err := tls.Dial("tcp", ip, conf)
 	if err != nil {
 		fmt.Println("error in https(dial): ", err)
-		return nil, err
+		return nil, nil, err
 	}
+
+	defer conn.Close()
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		fmt.Println("error in https(newRequest): ", err)
-		return nil, err
+		return nil, nil, err
 	}
 
 	err = req.Write(conn)
-
-	defer conn.Close()
+	if err != nil {
+		fmt.Println("error in https(Write): ", err)
+		return nil, nil, err
+	}
 
 	res, err := http.ReadResponse(bufio.NewReader(conn), req)
 
-	return res, nil
+	fmt.Println("res: ", res)
+	fmt.Println("err: ", err)
+	body, err := io.ReadAll(res.Body)
+
+	if err != nil {
+		fmt.Println("error in https(readAll): ", err)
+		return nil, nil, err
+	}
+	return res, body, nil
 
 }
 
@@ -274,9 +294,12 @@ func httpsPost(ip string, url string, content string, body io.ReadCloser) error 
 		fmt.Println("error in https(dial): ", err)
 		return err
 	}
+
+	defer conn.Close()
 	req, err := http.NewRequest("POST", url, nil)
 	if err != nil {
 		fmt.Println("error in https(newRequest): ", err)
+		return err
 	}
 
 	req.Body = body
@@ -284,7 +307,10 @@ func httpsPost(ip string, url string, content string, body io.ReadCloser) error 
 
 	err = req.Write(conn)
 
-	defer conn.Close()
+	if err != nil {
+		fmt.Println("error in https(Write): ", err)
+		return err
+	}
 
 	return nil
 }
@@ -298,6 +324,8 @@ func httpsDelete(ip string, url string) error {
 		fmt.Println("error in https(dial): ", err)
 		return err
 	}
+	defer conn.Close()
+
 	req, err := http.NewRequest("DELETE", url, nil)
 	if err != nil {
 		fmt.Println("error in https(newRequest): ", err)
@@ -306,7 +334,10 @@ func httpsDelete(ip string, url string) error {
 
 	err = req.Write(conn)
 
-	defer conn.Close()
+	if err != nil {
+		fmt.Println("error in https(Write): ", err)
+		return err
+	}
 
 	return nil
 
@@ -323,8 +354,6 @@ func createNode(arg argument.Argument) *node.Node {
 	return &node.Node{Ip: arg.A, Port: arg.P, Id: id, R: arg.R}
 
 }
-
-// Encryptins from: https://blog.logrocket.com/learn-golang-encryption-decryption/
 
 var rand_bytes = []byte{35, 46, 57, 24, 85, 35, 24, 74, 87, 35, 88, 98, 66, 32, 14, 05}
 
@@ -344,6 +373,7 @@ func Encrypt(plainText []byte, MySecret string) ([]byte, error) {
 	return cipherText, nil
 }
 
+// Create a key of the required length from the password
 func genKey(pswd string) []byte {
 
 	hasher := sha1.New()

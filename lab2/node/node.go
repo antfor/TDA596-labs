@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math/big"
 	"net/rpc"
+	"sort"
 	"strconv"
 )
 
@@ -14,8 +15,6 @@ type Node struct {
 	Port int
 
 	Id string
-
-	FileMap map[string]string // Map a key to a file name
 
 	R int
 }
@@ -38,9 +37,23 @@ var fingers [m]*Node
 
 var successors []*Node
 
+//var FileMap map[string]string // Map a key to a file name
+
+type FileAndBackups struct {
+	File   string
+	Backup []*Node
+	Key    string
+}
+
+var FileMap map[string]FileAndBackups // Map a key to a file name
+
+func (n *Node) GetSuccessors() []*Node {
+	return successors
+}
+
 func (n *Node) init() {
 
-	n.FileMap = make(map[string]string)
+	FileMap = make(map[string]FileAndBackups)
 
 	successors = make([]*Node, n.R)
 
@@ -185,6 +198,7 @@ func (n *Node) Ping(_ *Empty, reply *string) error {
 	return nil
 }
 
+// TODO ADD COMMENTS!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 func (n *Node) Stabilze(_ *Empty, _ *Empty) error {
 
 	xd := PredAndSuccList{Pred: Node{}, Succ: []*Node{}}
@@ -296,6 +310,15 @@ func Call[A any, R any](n *Node, f string, arg *A, reply *R) error {
 	return client.Call(f, arg, reply)
 }
 
+func (n *Node) StoreFileAtNode(node *Node, filename File) error {
+	err := Call(node, "Node.StoreFile", &filename, &Empty{})
+	if err != nil {
+		fmt.Println("Error in StoreFileAtNode: ", err)
+		return err
+	}
+	return nil
+}
+
 // Returns the hex value of a hash of a string, mod 2^m
 func Hash(elt string) string {
 	hasher := sha1.New()
@@ -353,27 +376,117 @@ func between(xs string, as string, bs string, inclusive bool) bool {
 
 // CMD /////////////////////////////////////////////
 
-func (n *Node) StoreFile(key string, file string) {
+type File struct {
+	Key  string
+	File string
+}
+
+func (n *Node) StoreFile(fileAndKey *File, _ *Empty) error {
+	key := fileAndKey.Key
+	file := fileAndKey.File
+
 	n.Print()
 	fmt.Println("key: ", key)
 	fmt.Println("file: ", file)
-	fmt.Println("store: ", n.FileMap)
+	fmt.Println("store: ", FileMap)
 
-	n.FileMap[key] = file
+	FileMap[key] = FileAndBackups{File: file, Key: key}
+
+	//for i := 0; i < n.R; i++ {
+	//Call(successors[i], "Node.StoreFile", &File{key, file}, &Empty{})
+	//}
+	return nil
 }
 
-func (n *Node) TakesKeys() (*Node, []string) {
-	s := fingers[0]
-	var files []string
+func (n *Node) TakeFiles() ([]*Node, []string) {
 
-	for key, file := range s.FileMap {
-		if between(n.Id, key, s.Id, false) {
-			n.FileMap[key] = file
-			delete(s.FileMap, key)
-			files = append(files, file)
+	s := fingers[0]
+
+	fb := make([]FileAndBackups, 0)
+
+	Call(s, "Node.TakesKeys", &n.Id, &fb)
+
+	toDelete := make([]*Node, 0)
+	files := make([]string, 0)
+
+	for _, file := range fb {
+		files = append(files, file.File)
+		toDelete = append(toDelete, fixBackup(n, file)...)
+	}
+
+	return toDelete, files
+}
+
+type NodeList []*Node
+
+func (ns NodeList) Len() int {
+	return len(ns)
+}
+
+func (ns NodeList) Less(i, j int) bool {
+	iId := toBigInt(ns[i].Id)
+	jId := toBigInt(ns[j].Id)
+
+	return iId.Cmp(jId) == 1
+}
+
+func (ns NodeList) Swap(i, j int) {
+	ns[i], ns[j] = ns[j], ns[i]
+}
+
+func fixBackup(me *Node, fb FileAndBackups) []*Node {
+
+	backups := fb.Backup
+	key := fb.Key
+
+	backups = append(backups, me)
+
+	sort.Sort(NodeList(backups))
+
+	newBackups := backups[:me.R]
+
+	toDelete := backups[me.R-1:]
+
+	newFb := FileAndBackups{Key: key, File: fb.File, Backup: newBackups}
+
+	for _, node := range toDelete {
+		Call(node, "Node.DeleteKey", &key, &Empty{})
+	}
+
+	for _, node := range newBackups {
+		Call(node, "Node.NewBackup", &newFb, &Empty{})
+	}
+	return toDelete
+}
+
+func (n *Node) DeleteKey(key *string, _ *Empty) error {
+	delete(FileMap, *key)
+	return nil
+}
+
+func (n *Node) NewBackup(newBackups *FileAndBackups, _ *Empty) error {
+	FileMap[newBackups.Key] = *newBackups
+	return nil
+}
+
+func (n *Node) TakesKeys(id *string, fb *[]FileAndBackups) error {
+
+	for key, file := range FileMap {
+		if between(*id, key, n.Id, false) {
+
+			fmt.Println("Delkey: ", key)
+
+			//delete(FileMap, key)
+			*fb = append(*fb, file)
 		}
 	}
-	return s, files
+
+	return nil
+}
+
+func (n *Node) GetFileMap(_ *Empty, filemap *map[string]FileAndBackups) error {
+	*filemap = FileMap
+	return nil
 }
 
 // CMD PrintState
@@ -408,6 +521,7 @@ func (n *Node) PrintState() {
 	}
 	fmt.Println()
 
+	fmt.Println("Files: ", FileMap)
 }
 
 // Prints the node information
