@@ -3,6 +3,7 @@ package node
 import (
 	"crypto/sha1"
 	"fmt"
+	"io"
 	"math/big"
 	"net/rpc"
 	"sort"
@@ -29,6 +30,12 @@ type PredAndSuccList struct {
 
 const m = 2 // Maybe need to change
 var maxNodes = new(big.Int).Exp(big.NewInt(2), big.NewInt(m), nil)
+var conn io.Writer
+
+func (n *Node) SetConn(c io.Writer) {
+	fmt.Println("SetConn", c)
+	conn = c
+}
 
 var predecessor *Node = &Node{}
 
@@ -103,7 +110,7 @@ func (n *Node) Find_successor(id *string, nr *Node) error {
 		err := n.Closest_preceding_node(id, n0)
 
 		if err != nil {
-			fmt.Println("error in find_suc1: ", err)
+			fmt.Fprintln(conn, "error in find_suc1: ", err)
 			return err
 		}
 
@@ -206,7 +213,7 @@ func (n *Node) Stabilze(_ *Empty, _ *Empty) error {
 	err := Call(fingers[0], "Node.GetPredAndSuccessors", &Empty{}, &xd)
 
 	if err != nil {
-		fmt.Println("error in stab, deleting node:", err)
+		fmt.Fprintln(conn, "error in stab, deleting node:", err)
 
 		if len(successors) > 1 {
 			removeAllBackups(n, successors[0], successors[1])
@@ -242,7 +249,7 @@ func (n *Node) replaceSuccessors(Succ []*Node) {
 	tempList = append(tempList, Succ...)
 
 	if !(len(tempList) < n.R) {
-		successors = tempList[:n.R] // todo r-1???
+		successors = tempList[:n.R]
 	} else {
 		successors = tempList
 	}
@@ -281,14 +288,12 @@ func (n *Node) GetPredAndSuccessors(_ *Empty, nd *PredAndSuccList) error {
 // Set the successor of the node
 func setSuccessor(s *Node) {
 
-	fmt.Println("fix in setSuccessor", s.Id)
+	tmp := append([]*Node{s}, successors...)
 
-	//for _, fb := range FileMap {
-
-	//fixBackup(s, fb)
-	//}
-
-	successors = append([]*Node{s}, successors...)
+	if len(successors) >= s.R {
+		tmp = tmp[:s.R]
+	}
+	successors = tmp
 	fingers[0] = s
 
 }
@@ -325,7 +330,7 @@ func Call[A any, R any](n *Node, f string, arg *A, reply *R) error {
 func (n *Node) StoreFileAtNode(node *Node, filename File) error {
 	err := Call(node, "Node.StoreFile", &filename, &Empty{})
 	if err != nil {
-		fmt.Println("Error in StoreFileAtNode: ", err)
+		fmt.Fprintln(conn, "Error in StoreFileAtNode: ", err)
 		return err
 	}
 	return nil
@@ -398,21 +403,25 @@ func (n *Node) StoreFile(fileAndKey *File, _ *Empty) error {
 	file := fileAndKey.File
 
 	n.Print()
-	fmt.Println("key: ", key)
-	fmt.Println("file: ", file)
-	fmt.Println("store: ", FileMap)
-
-	//todo backups
+	fmt.Fprintln(conn, "key: ", key)
+	fmt.Fprintln(conn, "file: ", file)
+	fmt.Fprintln(conn, "store: ", FileMap)
 
 	backup := make([]*Node, 1)
 	backup[0] = n
+
 	// todo add successors to backup
+	for i := 0; i < len(successors)-1; i++ {
+		backup = append(backup, successors[i])
+	}
+	fb := FileAndBackups{File: file, Key: key, Backup: backup}
 
-	FileMap[key] = FileAndBackups{File: file, Key: key, Backup: backup}
+	for i := 0; i < len(successors)-1; i++ {
+		Call(successors[i], "Node.NewBackup", &fb, &Empty{})
+	}
 
-	//for i := 0; i < n.R; i++ {
-	//Call(successors[i], "Node.StoreFile", &File{key, file}, &Empty{})
-	//}
+	FileMap[key] = fb
+
 	return nil
 }
 
@@ -463,13 +472,13 @@ func remove(s []*Node, e *Node) ([]*Node, bool) {
 func removeAllBackups(me *Node, succ *Node, succSucc *Node) {
 	err := me.RemoveBackups(succ, &Empty{})
 	if err != nil {
-		fmt.Println("error in removeAllBackups1: ", err)
+		fmt.Fprintln(conn, "error in removeAllBackups1: ", err)
 	}
 
 	err = Call(succSucc, "Node.RemoveBackups", succ, &Empty{})
 
 	if err != nil {
-		fmt.Println("error in removeAllBackups2: ", err)
+		fmt.Fprintln(conn, "error in removeAllBackups2: ", err)
 	}
 }
 
@@ -483,7 +492,7 @@ func (n *Node) RemoveBackups(succ *Node, _ *Empty) error {
 			for _, node := range fb.Backup {
 				err := Call(node, "Node.NewBackup", &fb, &Empty{})
 				if err != nil {
-					fmt.Println("error in RemoveBackups: ", err)
+					fmt.Fprintln(conn, "error in RemoveBackups: ", err)
 				}
 			}
 		}
@@ -494,13 +503,13 @@ func (n *Node) RemoveBackups(succ *Node, _ *Empty) error {
 
 func fixBackup(me *Node, fb FileAndBackups) {
 
-	fmt.Println("fixBackup: ")
+	fmt.Fprintln(conn, "fixBackup: ")
 
 	backups := fb.Backup
 	key := fb.Key
 
 	backups = append(backups, me)
-	fmt.Println("backups: ", backups)
+	fmt.Fprintln(conn, "backups: ", backups)
 
 	sort.Sort(NodeList(backups))
 
@@ -541,7 +550,7 @@ func (n *Node) TakeKeys(me *Node, fb *[]FileAndBackups) error {
 		if between(me.Id, key, n.Id, false) {
 
 			fixBackup(me, file)
-			//fmt.Println("Delkey: ", key)
+			//fmt.Fprintln(conn, "Delkey: ", key)
 
 			//*fb = append(*fb, file)
 		}
@@ -557,40 +566,40 @@ func (n *Node) GetFileMap(_ *Empty, filemap *map[string]FileAndBackups) error {
 
 // CMD PrintState
 func (n *Node) PrintState() {
-	fmt.Println("me: ")
+	fmt.Fprintln(conn, "me: ")
 	n.Print()
 	if predecessor != nil {
-		fmt.Println("predecessor: ")
+		fmt.Fprintln(conn, "predecessor: ")
 		predecessor.Print()
 	} else {
-		fmt.Println("predecessor is nil ")
+		fmt.Fprintln(conn, "predecessor is nil ")
 	}
 
-	fmt.Println("successor: ")
+	fmt.Fprintln(conn, "successor: ")
 
 	fingers[0].Print()
-	fmt.Println("finger table: ")
+	fmt.Fprintln(conn, "finger table: ")
 
 	for i := 0; i < m; i++ {
 		if fingers[i] != nil {
-			fmt.Println("finger", i, ":")
+			fmt.Fprintln(conn, "finger", i, ":")
 			fingers[i].Print()
 		} else {
-			fmt.Println("finger ", i, " is nil")
+			fmt.Fprintln(conn, "finger ", i, " is nil")
 		}
 	}
 
-	fmt.Println("Successors: ", successors)
+	fmt.Fprintln(conn, "Successors: ", successors)
 	fmt.Print("    ")
 	for _, s := range successors {
 		fmt.Print(s.Id, " , ")
 	}
-	fmt.Println()
+	fmt.Fprintln(conn)
 
-	fmt.Println("Files: ", FileMap)
+	fmt.Fprintln(conn, "Files: ", FileMap)
 
 	for key, file := range FileMap {
-		fmt.Println("	key: ", key, " file: ", file.File)
+		fmt.Fprintln(conn, "	key: ", key, " file: ", file.File)
 		for _, b := range file.Backup {
 			fmt.Print("		backup: ", b.Id)
 		}
@@ -599,9 +608,9 @@ func (n *Node) PrintState() {
 
 // Prints the node information
 func (n *Node) Print() {
-	fmt.Println("	ip: ", n.Ip)
-	fmt.Println("	port: ", n.Port)
+	fmt.Fprintln(conn, "	ip: ", n.Ip)
+	fmt.Fprintln(conn, "	port: ", n.Port)
 
 	value, _ := strconv.ParseInt(n.Id, 16, 64)
-	fmt.Println("	id (base 10)", value)
+	fmt.Fprintln(conn, "	id (base 10)", value)
 }

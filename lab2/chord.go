@@ -24,6 +24,8 @@ import (
 
 var me *node.Node
 
+var Conn io.Writer
+
 const serverPort = "443"
 
 func main() {
@@ -32,7 +34,22 @@ func main() {
 
 	fmt.Println("args:", arg, "type: ", argType)
 
+	if arg.A == "get" {
+		arg.A = getLocalAddress()
+	}
+
+	if arg.G {
+		clientGui(arg)
+	}
+
 	me = createNode(arg)
+
+	if arg.S {
+		server()
+	} else {
+		notServer()
+	}
+
 	RPC_server(me)
 
 	switch argType {
@@ -54,11 +71,71 @@ func main() {
 
 }
 
+const stdPort = "8080"
+
+var reader *bufio.Reader
+
+func server() {
+
+	l, _ := net.Listen("tcp", ":"+stdPort)
+	c, err := l.Accept()
+
+	fmt.Println("server", err)
+
+	reader = bufio.NewReader(os.Stdin)
+
+	go readStuff(c)
+
+	Conn = c
+
+	me.SetConn(Conn)
+
+}
+
+func readStuff(conn net.Conn) {
+	reader = bufio.NewReader(conn)
+
+	for {
+		out, _ := reader.ReadString('\n')
+
+		fmt.Println(out)
+	}
+
+}
+
+func notServer() {
+	Conn = os.Stdin
+	me.SetConn(Conn)
+}
+
+func clientGui(arg argument.Argument) {
+
+	c, err := net.Dial("tcp", arg.A+":"+stdPort)
+
+	go readStuff(c)
+
+	Conn = c
+
+	fmt.Println("client", err)
+
+	clientReader := bufio.NewReader(os.Stdin)
+
+	for {
+
+		input, _ := clientReader.ReadString('\n')
+
+		fmt.Fprintln(Conn, input)
+
+	}
+
+}
+
 func create(arg argument.Argument) {
+
 	err := me.Create(&arg.R, &node.Empty{})
 
 	if err != nil {
-		fmt.Println("create err:", err)
+		fmt.Fprintln(Conn, "create err:", err)
 	}
 
 }
@@ -73,7 +150,7 @@ func join(arg argument.Argument) {
 	err = me.Join(Jnode, &node.Empty{})
 
 	if err != nil {
-		fmt.Println("join err:", err)
+		fmt.Fprintln(Conn, "join err:", err)
 	}
 
 	from, files := me.TakeFiles() // del
@@ -84,7 +161,7 @@ func join(arg argument.Argument) {
 
 func read_stdin() {
 
-	reader := bufio.NewReader(os.Stdin)
+	//reader := bufio.NewReader(os.Stdin)
 
 	for {
 		input, _ := reader.ReadString('\n')
@@ -98,7 +175,7 @@ func read_stdin() {
 		case "StoreFile":
 			storeFile(arg, option)
 		default:
-			fmt.Println("Not a valid command")
+			fmt.Fprintln(Conn, "Not a valid command")
 			me.PrintState()
 		}
 
@@ -111,14 +188,14 @@ func lookup(file string) {
 	reply := &node.Node{}
 	me.Find_successor(&key, reply)
 
-	fmt.Println("Key hashed is: ", key)
+	fmt.Fprintln(Conn, "Key hashed is: ", key)
 
-	fmt.Println("File is at node: ")
+	fmt.Fprintln(Conn, "File is at node: ")
 	reply.Print()
 }
 
 func storeFile(file string, option string) {
-	fmt.Println("storing file: ", file, " with option: ", option)
+	fmt.Fprintln(Conn, "storing file: ", file, " with option: ", option)
 	key := node.Hash(file)
 	reply := &node.Node{}
 	me.Find_successor(&key, reply)
@@ -132,30 +209,30 @@ func storeFile(file string, option string) {
 		content := http.DetectContentType(body)
 
 		if option != "" {
-			fmt.Println("encrypting file with key: ", option)
+			fmt.Fprintln(Conn, "encrypting file with key: ", option)
 			body, err = Encrypt(body, option)
 
 			if err != nil {
-				fmt.Println("error encrypting file: ", err)
+				fmt.Fprintln(Conn, "error encrypting file: ", err)
 			}
 		}
 
 		reader := io.NopCloser(bytes.NewReader(body))
 
-		fmt.Println("id is: ", reply.Id)
+		fmt.Fprintln(Conn, "id is: ", reply.Id)
 
 		//POST
 		err = httpsPost(reply.Ip+":"+serverPort, "https://"+reply.Ip+":"+serverPort+"/"+fileName, content, reader)
 
 		if err != nil {
-			fmt.Println("error posting file: ", err)
+			fmt.Fprintln(Conn, "error posting file: ", err)
 		}
 		//reply.StoreFile(&node.File{Key: key, File: file}, &node.Empty{})
 		err := me.StoreFileAtNode(reply, node.File{Key: key, File: file})
-		fmt.Println("Call err: ", err)
+		fmt.Fprintln(Conn, "Call err: ", err)
 
 	} else {
-		fmt.Println("error reading file: ", err)
+		fmt.Fprintln(Conn, "error reading file: ", err)
 	}
 
 }
@@ -200,7 +277,7 @@ func RPC_server(n *node.Node) {
 	l, err := net.Listen("tcp", ":"+strconv.Itoa(n.Port))
 
 	if err != nil {
-		fmt.Println("error in RPC_server: ", err)
+		fmt.Fprintln(Conn, "error in RPC_server: ", err)
 	}
 	go http.Serve(l, nil)
 }
@@ -220,12 +297,12 @@ func moveFiles(post *node.Node, dels []*node.Node, files []string) {
 
 func transferFiles(from *node.Node, to *node.Node, files []string) {
 
-	fmt.Println("moveFiles: ", files)
-	fmt.Println("from: ", from)
-	fmt.Println("to: ", to)
+	fmt.Fprintln(Conn, "moveFiles: ", files)
+	fmt.Fprintln(Conn, "from: ", from)
+	fmt.Fprintln(Conn, "to: ", to)
 	for _, file := range files {
 
-		fmt.Println("file: ", file)
+		fmt.Fprintln(Conn, "file: ", file)
 
 		fromUrl := "https://" + from.Ip + ":" + serverPort + "/" + file // todo: change from serverPort
 
@@ -235,14 +312,14 @@ func transferFiles(from *node.Node, to *node.Node, files []string) {
 		reader := io.NopCloser(bytes.NewReader(body))
 
 		if err != nil {
-			fmt.Println("error in moveFiles (Get): ", err)
+			fmt.Fprintln(Conn, "error in moveFiles (Get): ", err)
 		}
 
 		//Post
 		err = httpsPost(to.Ip+":"+serverPort, "https://"+to.Ip+":"+serverPort+"/"+file, response.Header.Get("Content-Type"), reader)
 
 		if err != nil {
-			fmt.Println("error in moveFiles (Post): ", err)
+			fmt.Fprintln(Conn, "error in moveFiles (Post): ", err)
 		}
 
 	}
@@ -254,31 +331,31 @@ func httpsGet(ip string, url string) (*http.Response, []byte, error) {
 	}
 	conn, err := tls.Dial("tcp", ip, conf)
 	if err != nil {
-		fmt.Println("error in https(dial): ", err)
+		fmt.Fprintln(conn, "error in https(dial): ", err)
 		return nil, nil, err
 	}
 
 	defer conn.Close()
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
-		fmt.Println("error in https(newRequest): ", err)
+		fmt.Fprintln(conn, "error in https(newRequest): ", err)
 		return nil, nil, err
 	}
 
 	err = req.Write(conn)
 	if err != nil {
-		fmt.Println("error in https(Write): ", err)
+		fmt.Fprintln(conn, "error in https(Write): ", err)
 		return nil, nil, err
 	}
 
 	res, err := http.ReadResponse(bufio.NewReader(conn), req)
 
-	fmt.Println("res: ", res)
-	fmt.Println("err: ", err)
+	fmt.Fprintln(conn, "res: ", res)
+	fmt.Fprintln(conn, "err: ", err)
 	body, err := io.ReadAll(res.Body)
 
 	if err != nil {
-		fmt.Println("error in https(readAll): ", err)
+		fmt.Fprintln(conn, "error in https(readAll): ", err)
 		return nil, nil, err
 	}
 	return res, body, nil
@@ -291,14 +368,14 @@ func httpsPost(ip string, url string, content string, body io.ReadCloser) error 
 	}
 	conn, err := tls.Dial("tcp", ip, conf)
 	if err != nil {
-		fmt.Println("error in https(dial): ", err)
+		fmt.Fprintln(conn, "error in https(dial): ", err)
 		return err
 	}
 
 	defer conn.Close()
 	req, err := http.NewRequest("POST", url, nil)
 	if err != nil {
-		fmt.Println("error in https(newRequest): ", err)
+		fmt.Fprintln(conn, "error in https(newRequest): ", err)
 		return err
 	}
 
@@ -308,7 +385,7 @@ func httpsPost(ip string, url string, content string, body io.ReadCloser) error 
 	err = req.Write(conn)
 
 	if err != nil {
-		fmt.Println("error in https(Write): ", err)
+		fmt.Fprintln(conn, "error in https(Write): ", err)
 		return err
 	}
 
@@ -321,21 +398,21 @@ func httpsDelete(ip string, url string) error {
 	}
 	conn, err := tls.Dial("tcp", ip, conf)
 	if err != nil {
-		fmt.Println("error in https(dial): ", err)
+		fmt.Fprintln(conn, "error in https(dial): ", err)
 		return err
 	}
 	defer conn.Close()
 
 	req, err := http.NewRequest("DELETE", url, nil)
 	if err != nil {
-		fmt.Println("error in https(newRequest): ", err)
+		fmt.Fprintln(conn, "error in https(newRequest): ", err)
 		return err
 	}
 
 	err = req.Write(conn)
 
 	if err != nil {
-		fmt.Println("error in https(Write): ", err)
+		fmt.Fprintln(conn, "error in https(Write): ", err)
 		return err
 	}
 
@@ -382,4 +459,16 @@ func genKey(pswd string) []byte {
 	hashValue := new(big.Int).SetBytes(hasher.Sum(nil))
 
 	return hashValue.Bytes()[:16]
+}
+
+func getLocalAddress() string {
+	conn, err := net.Dial("udp", "8.8.8.8:80")
+	if err != nil {
+		panic(err)
+	}
+	defer conn.Close()
+
+	localAddr := conn.LocalAddr().(*net.UDPAddr)
+
+	return localAddr.IP.String()
 }
