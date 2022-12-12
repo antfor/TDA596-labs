@@ -281,12 +281,12 @@ func (n *Node) GetPredAndSuccessors(_ *Empty, nd *PredAndSuccList) error {
 // Set the successor of the node
 func setSuccessor(s *Node) {
 
-	fmt.Println("fix in setSuccessor", s.Id)
+	tmp := append([]*Node{s}, successors...)
 
-	//for _, fb := range FileMap {
-
-	//fixBackup(s, fb)
-	//}
+	if len(successors) >= s.R {
+		tmp = tmp[:s.R]
+	}
+	successors = tmp
 
 	successors = append([]*Node{s}, successors...)
 	fingers[0] = s
@@ -402,17 +402,20 @@ func (n *Node) StoreFile(fileAndKey *File, _ *Empty) error {
 	fmt.Println("file: ", file)
 	fmt.Println("store: ", FileMap)
 
-	//todo backups
-
 	backup := make([]*Node, 1)
 	backup[0] = n
-	// todo add successors to backup
 
-	FileMap[key] = FileAndBackups{File: file, Key: key, Backup: backup}
+	for i := 0; i < len(successors)-1; i++ {
+		backup = append(backup, successors[i])
+	}
+	fb := FileAndBackups{File: file, Key: key, Backup: backup}
 
-	//for i := 0; i < n.R; i++ {
-	//Call(successors[i], "Node.StoreFile", &File{key, file}, &Empty{})
-	//}
+	for i := 0; i < len(successors)-1; i++ {
+		Call(successors[i], "Node.NewBackup", &fb, &Empty{})
+	}
+
+	FileMap[key] = fb
+
 	return nil
 }
 

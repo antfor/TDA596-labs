@@ -150,7 +150,7 @@ func storeFile(file string, option string) {
 		if err != nil {
 			fmt.Println("error posting file: ", err)
 		}
-		//reply.StoreFile(&node.File{Key: key, File: file}, &node.Empty{})
+
 		err := me.StoreFileAtNode(reply, node.File{Key: key, File: file})
 		fmt.Println("Call err: ", err)
 
