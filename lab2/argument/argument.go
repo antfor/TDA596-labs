@@ -15,6 +15,8 @@ type Argument struct {
 	Tcp int
 	R   int
 	I   string
+	S   string
+	G   string
 }
 
 type ArgType int
@@ -63,6 +65,9 @@ func setFlags() Argument {
 	flag.IntVar(&arg.R, "r", -1, "an int")
 
 	flag.StringVar(&arg.I, "i", "", "a string")
+
+	flag.StringVar(&arg.S, "s", "", "a string")
+	flag.StringVar(&arg.G, "g", "", "a string")
 
 	flag.Parse()
 

@@ -3,11 +3,14 @@ package node
 import (
 	"crypto/sha1"
 	"fmt"
+	"io"
 	"math/big"
 	"net/rpc"
 	"sort"
 	"strconv"
 )
+
+var conn io.Writer
 
 type Node struct {
 	Ip string
@@ -46,6 +49,11 @@ type FileAndBackups struct {
 }
 
 var FileMap map[string]FileAndBackups // Map a key to a file name
+
+func (n *Node) SetConn(c io.Writer) {
+	fmt.Println("SetConn", c)
+	conn = c
+}
 
 func (n *Node) GetSuccessors() []*Node {
 	return successors

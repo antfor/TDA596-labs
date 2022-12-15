@@ -32,6 +32,15 @@ func main() {
 
 	fmt.Println("args:", arg, "type: ", argType)
 
+	if arg.A == "get" {
+		arg.A = getLocalAddress()
+	}
+
+	if arg.G != "" {
+		clientGui(arg)
+	}
+	Conn = os.Stdin
+
 	me = createNode(arg)
 	RPC_server(me)
 
@@ -49,6 +58,12 @@ func main() {
 	go timer(arg.Ts, func() { me.Stabilze(&node.Empty{}, &node.Empty{}) })
 
 	go timer(arg.Tff, func() { me.Fix_fingers(&node.Empty{}, &node.Empty{}) })
+
+	if arg.S != "" {
+		server()
+	} else {
+		notServer()
+	}
 
 	read_stdin()
 
@@ -84,11 +99,15 @@ func join(arg argument.Argument) {
 
 func read_stdin() {
 
-	reader := bufio.NewReader(os.Stdin)
+	reader = bufio.NewReader(os.Stdin)
 
 	for {
+		//fmt.Fprintln(Conn, "hej")
+
 		input, _ := reader.ReadString('\n')
 		cmd, arg, option := parseCmd(input)
+
+		//fmt.Fprintln(Conn, "cmd: ", cmd)
 
 		switch cmd {
 		case "PrintState":
@@ -382,4 +401,83 @@ func genKey(pswd string) []byte {
 	hashValue := new(big.Int).SetBytes(hasher.Sum(nil))
 
 	return hashValue.Bytes()[:16]
+}
+
+// guI //////////////////////////////////////
+var reader *bufio.Reader
+
+const stdPort = "20"
+
+var Conn io.Writer
+
+func server() {
+
+	l, _ := net.Listen("tcp", ":"+stdPort)
+
+	go read_stdin()
+
+	for {
+		c, err := l.Accept()
+
+		fmt.Println("server", err)
+
+		reader = bufio.NewReader(os.Stdin)
+
+		go readStuff(c)
+
+		Conn = c
+
+		me.SetConn(Conn)
+
+	}
+}
+
+func notServer() {
+	Conn = os.Stdin
+	me.SetConn(Conn)
+}
+
+func readStuff(conn net.Conn) {
+	reader = bufio.NewReader(conn)
+
+	for {
+		out, _ := reader.ReadString('\n')
+
+		fmt.Print(out)
+	}
+
+}
+
+func clientGui(arg argument.Argument) {
+
+	c, err := net.Dial("tcp", arg.A+":"+stdPort)
+
+	go readStuff(c)
+
+	Conn = c
+
+	fmt.Println("client", err)
+
+	clientReader := bufio.NewReader(os.Stdin)
+
+	for {
+
+		input, _ := clientReader.ReadString('\n')
+
+		fmt.Fprint(Conn, input)
+
+	}
+
+}
+
+func getLocalAddress() string {
+	conn, err := net.Dial("udp", "8.8.8.8:80")
+	if err != nil {
+		panic(err)
+	}
+	defer conn.Close()
+
+	localAddr := conn.LocalAddr().(*net.UDPAddr)
+
+	return localAddr.IP.String()
 }
