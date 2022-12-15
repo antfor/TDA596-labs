@@ -27,7 +27,7 @@ type PredAndSuccList struct {
 	Succ []*Node
 }
 
-const m = 2 // Maybe need to change
+const m = 4 // Maybe need to change
 var maxNodes = new(big.Int).Exp(big.NewInt(2), big.NewInt(m), nil)
 
 var predecessor *Node = &Node{}
@@ -586,7 +586,8 @@ func (n *Node) PrintState() {
 	fmt.Println("Successors: ", successors)
 	fmt.Print("    ")
 	for _, s := range successors {
-		fmt.Print(s.Id, " , ")
+		value, _ := strconv.ParseInt(s.Id, 16, 64)
+		fmt.Print(value, " (base 10)", " , ")
 	}
 	fmt.Println()
 
